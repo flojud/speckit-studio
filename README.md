@@ -15,6 +15,13 @@
 </p>
 
 <p align="center">
+  <a href="docs/media/speckit-studio-intro.mp4">
+    <img src="docs/media/speckit-studio-intro.jpg" alt="Watch the Speckit Studio intro video (35 s)" width="100%">
+  </a>
+  <br><sub>▶ <a href="docs/media/speckit-studio-intro.mp4">Watch the 35-second intro</a></sub>
+</p>
+
+<p align="center">
   <sub>A personal project by <a href="https://github.com/flojud">Florian Jud</a>, shared as open source under the MIT License. It builds on GitHub Spec Kit but is not affiliated with GitHub.</sub>
 </p>
 
