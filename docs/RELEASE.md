@@ -2,7 +2,7 @@
 
 ## Automatic releases (GitHub Actions)
 
-Every push to `main` that passes **CI** (`.github/workflows/ci.yml`) triggers **Release** (`.github/workflows/release.yml`):
+Development happens on `devel`. Every push to `main` (usually a fast-forward from `devel`) that passes **CI** (`.github/workflows/ci.yml`) triggers **Release** (`.github/workflows/release.yml`):
 
 1. The version is `<major>.<minor>` from `package.json` plus the workflow run number, e.g. `0.1.17`. To start a new line, bump `version` in `package.json` (e.g. to `0.2.0`).
 2. macOS (DMG + ZIP, arm64 and x64), Windows (NSIS installer) and Linux (AppImage) are built on their own runners.

@@ -42,7 +42,7 @@ npm run pack       # unpacked app in dist/ to try the packaged build
 
 Before you open a pull request, please run `npm run typecheck`, `npm test` and `npm run build`.
 
-You don't need to release anything yourself: every push to `main` that passes CI is built for macOS, Windows and Linux and published as a GitHub release (`.github/workflows/release.yml`, details in [docs/RELEASE.md](docs/RELEASE.md)).
+Development happens on `devel`. You don't need to release anything yourself: when I bring `devel` into `main` and CI passes, the app is built for macOS, Windows and Linux and published as a GitHub release (`.github/workflows/release.yml`, details in [docs/RELEASE.md](docs/RELEASE.md)).
 
 ---
 
@@ -56,7 +56,7 @@ You don't need to release anything yourself: every push to `main` that passes CI
 
 ## 📦 Pull requests
 
-- Base your branch on the latest `main`.
+- Base your branch on the latest `devel` and open the pull request against `devel`.
 - Fill in the pull request template.
 - I review pull requests as soon as I can. Since this is a spare-time project, it may take a few days – please don't hesitate to ping me if it's been quiet for a while.
 

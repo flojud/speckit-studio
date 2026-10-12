@@ -19,7 +19,7 @@ body:
     attributes:
       label: Speckit Studio Version
       description: What version or commit hash are you using? (Check package.json or Help menu)
-      placeholder: e.g. 0.1.0 or main@abc1234
+      placeholder: e.g. 0.1.0 or devel@abc1234
     validations:
       required: true
   - type: dropdown

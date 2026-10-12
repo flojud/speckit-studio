@@ -1,6 +1,6 @@
 name: Release
 
-# Every push to main that passes CI becomes a GitHub release v<major>.<minor>.<run number>
+# Development happens on devel; every push to main that passes CI becomes a GitHub release v<major>.<minor>.<run number>
 # with installers for macOS, Windows and Linux. The README links to releases/latest.
 on:
   workflow_run:

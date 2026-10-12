@@ -48,7 +48,7 @@
 
 ## ⬇️ Download
 
-The latest build of `main` – every push that passes CI is released automatically:
+The latest release – every update of `main` that passes CI is released automatically:
 
 | Platform | Download |
 |---|---|
