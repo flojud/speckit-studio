@@ -15,11 +15,11 @@
 </p>
 
 <p align="center">
-  <video controls>
-    <source src="docs/media/speckit-studio-intro.mp4" type="video/mp4">
-    Watch the Speckit Studio intro video (35 s)
+  <video src="docs/media/speckit-studio-intro.mp4" controls width="100%" max-width="600px">
+    Ihr Browser unterstützt dieses Video nicht.
   </video>
-  <br><sub>▶ <a href="docs/media/speckit-studio-intro.mp4">Watch the 35-second intro</a></sub>
+  <br>
+  <sub>▶ <a href="docs/media/speckit-studio-intro.mp4">Speckit Studio Intro-Video ansehen (35 Sek.)</a></sub>
 </p>
 
 <p align="center">
