@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="housingGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="70%" stop-color="#090d16" />
+      <stop offset="100%" stop-color="#030712" />
+    </radialGradient>
+
+    <!-- Bezel Gradient -->
+    <linearGradient id="bezelGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#334155" />
+      <stop offset="50%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+
+    <!-- Radar Sweep Gradient -->
+    <linearGradient id="sweepGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.5" />
+      <stop offset="70%" stop-color="#0891b2" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="#0e7490" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="cyanGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="coreGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Outer Bezel Ring -->
+  <circle cx="256" cy="256" r="248" fill="url(#housingGrad)" stroke="url(#bezelGrad)" stroke-width="8" />
+  <circle cx="256" cy="256" r="236" fill="none" stroke="#1e293b" stroke-width="2" />
+
+  <!-- Compass Azimuth Degree Ticks -->
+  <g stroke="#475569" stroke-width="1.5" opacity="0.7">
+    <!-- 30 deg ticks -->
+    <line x1="256" y1="20" x2="256" y2="34" />
+    <line x1="256" y1="478" x2="256" y2="492" />
+    <line x1="20" y1="256" x2="34" y2="256" />
+    <line x1="478" y1="256" x2="492" y2="256" />
+
+    <line x1="374" y1="52" x2="367" y2="64" />
+    <line x1="138" y1="460" x2="145" y2="448" />
+    <line x1="460" y1="138" x2="448" y2="145" />
+    <line x1="52" y1="374" x2="64" y2="367" />
+
+    <line x1="460" y1="374" x2="448" y2="367" />
+    <line x1="52" y1="138" x2="64" y2="145" />
+    <line x1="374" y1="460" x2="367" y2="448" />
+    <line x1="138" y1="52" x2="145" y2="64" />
+  </g>
+
+  <!-- Cardinal Points Indicators -->
+  <polygon points="256,22 262,38 250,38" fill="#38bdf8" />
+  <polygon points="490,256 474,250 474,262" fill="#64748b" />
+  <polygon points="256,490 250,474 262,474" fill="#64748b" />
+  <polygon points="22,256 38,262 38,250" fill="#64748b" />
+
+  <!-- Concentric Radar Range Rings -->
+  <circle cx="256" cy="256" r="190" fill="none" stroke="#1e293b" stroke-width="1.5" stroke-dasharray="4 4" />
+  <circle cx="256" cy="256" r="135" fill="none" stroke="#334155" stroke-width="2" />
+  <circle cx="256" cy="256" r="80" fill="none" stroke="#1e293b" stroke-width="1.5" stroke-dasharray="3 3" />
+
+  <!-- Radar Sweep Arc (Pie Wedge: 45° to 105°) -->
+  <path d="M 256,256 L 390.4,121.6 A 190,190 0 0,1 425.4,342.3 Z" fill="url(#sweepGrad)" opacity="0.85" />
+
+  <!-- Radar Sweep Leading Line -->
+  <line x1="256" y1="256" x2="425.4" y2="342.3" stroke="#22d3ee" stroke-width="2.5" filter="url(#cyanGlow)" />
+
+  <!-- Precision Crosshair Axes -->
+  <g stroke="#0e7490" stroke-width="1.5" opacity="0.6">
+    <line x1="256" y1="56" x2="256" y2="456" />
+    <line x1="56" y1="256" x2="456" y2="256" />
+  </g>
+
+  <!-- Crosshair Reticle Center Ticks -->
+  <g stroke="#38bdf8" stroke-width="2" opacity="0.8">
+    <line x1="256" y1="176" x2="256" y2="186" />
+    <line x1="256" y1="326" x2="256" y2="336" />
+    <line x1="176" y1="256" x2="186" y2="256" />
+    <line x1="326" y1="256" x2="336" y2="256" />
+  </g>
+
+  <!-- Radar Tracked Spec Blips (Nodes) -->
+  <g filter="url(#cyanGlow)">
+    <!-- Active Spec Blip (Cyan) -->
+    <circle cx="340" cy="180" r="7" fill="#22d3ee" />
+    <circle cx="340" cy="180" r="14" fill="none" stroke="#22d3ee" stroke-width="1.5" opacity="0.7" />
+
+    <!-- Validated Spec Blip (Emerald) -->
+    <circle cx="170" cy="310" r="6" fill="#10b981" />
+    <circle cx="170" cy="310" r="12" fill="none" stroke="#10b981" stroke-width="1.5" opacity="0.6" />
+
+    <!-- In-Progress Spec Blip (Sky) -->
+    <circle cx="310" cy="320" r="5" fill="#38bdf8" />
+  </g>
+
+  <!-- Center Instrument Core & Glowing Beacon -->
+  <circle cx="256" cy="256" r="26" fill="#0b1329" stroke="#0284c7" stroke-width="3" />
+  <circle cx="256" cy="256" r="14" fill="#0369a1" />
+  <circle cx="256" cy="256" r="7" fill="#38bdf8" filter="url(#coreGlow)" />
+  <circle cx="256" cy="256" r="3" fill="#ffffff" />
+</svg>

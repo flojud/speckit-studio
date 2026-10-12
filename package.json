@@ -1,0 +1,63 @@
+{
+  "name": "speckit-studio",
+  "version": "0.1.0",
+  "description": "Local Spec-Driven Development cockpit for GitHub Spec Kit, driving coding agents via ACP",
+  "main": "./out/main/index.js",
+  "license": "MIT",
+  "author": "Florian Jud",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flojud/speckit-studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/flojud/speckit-studio/issues"
+  },
+  "homepage": "https://github.com/flojud/speckit-studio#readme",
+  "keywords": [
+    "spec-kit",
+    "speckit",
+    "agentic-ai",
+    "acp",
+    "agent-client-protocol",
+    "claude-code",
+    "antigravity",
+    "electron",
+    "desktop",
+    "developer-tools",
+    "spec-driven-development"
+  ],
+  "scripts": {
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "test": "node --experimental-strip-types --no-warnings --test tests/*.test.ts",
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "build": "npm run typecheck && electron-vite build",
+    "pack": "npm run build && electron-builder --dir",
+    "dist:mac": "npm run build && electron-builder --mac"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.8.0",
+    "@electron-toolkit/utils": "^4.0.0",
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
+    "@electron-toolkit/tsconfig": "^2.0.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.7"
+  }
+}

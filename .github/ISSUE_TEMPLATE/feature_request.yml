@@ -1,0 +1,37 @@
+name: Feature Request
+description: Propose an enhancement, new feature, or Spec Kit capability
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature for Speckit Studio! Larger features go through Spec-Driven Development (spec, plan, tasks), so a clear description of the problem helps most.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem or limitation does this feature address? Is your request related to a specific pain point?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution / Feature
+      description: Describe your proposed enhancement or workflow improvement in detail.
+    validations:
+      required: true
+  - type: textarea
+    id: spec_kit_impact
+    attributes:
+      label: Spec Kit & Workflow Impact
+      description: Does this impact Spec Kit files (specs/, .specify/), the ACP protocol, or agent interactions?
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or workarounds you've considered.
+    validations:
+      required: false

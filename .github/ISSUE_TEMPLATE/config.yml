@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Community Discussions
+    url: https://github.com/flojud/speckit-studio/discussions
+    description: Ask questions, share workflows, and discuss Spec-Driven Development ideas.
+  - name: Security Vulnerability Reporting
+    url: https://github.com/flojud/speckit-studio/security/policy
+    description: Report security vulnerabilities responsibly.

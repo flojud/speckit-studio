@@ -1,0 +1,73 @@
+name: Bug Report
+description: Report a defect or unexpected behavior in Speckit Studio
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting an issue in Speckit Studio! The more detail you add, the easier it is for me to reproduce and fix it.
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Speckit Studio Version
+      description: What version or commit hash are you using? (Check package.json or Help menu)
+      placeholder: e.g. 0.1.0 or main@abc1234
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: Which operating system are you running Speckit Studio on?
+      options:
+        - macOS
+        - Linux
+        - Windows
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: ACP Coding Agent
+      description: Which agent were you using when the issue occurred?
+      options:
+        - Claude Code
+        - Google Antigravity
+        - Fake agent (dev)
+        - None / Not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed step-by-step instructions to reproduce the issue.
+      placeholder: |
+        1. Open project '...'
+        2. Click on '...'
+        3. Trigger phase '...'
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: A clear description of what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Diagnostic Logs / Terminal Output
+      description: Please paste any relevant error logs or terminal output here.
+      render: shell
+    validations:
+      required: false

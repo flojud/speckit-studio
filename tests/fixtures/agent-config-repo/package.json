@@ -1,0 +1,7 @@
+{
+  "name": "agent-config-fixture",
+  "scripts": {
+    "test": "node --test",
+    "build": "tsc"
+  }
+}
