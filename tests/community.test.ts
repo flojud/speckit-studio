@@ -117,3 +117,15 @@ test('SECURITY.md: supported versions and private vulnerability reporting', () =
   assert.match(content, /Reporting a Vulnerability/, 'Must include vulnerability reporting instructions')
   assert.match(content, /Security Advisor/, 'Must reference GitHub Security Advisories')
 })
+
+// electron-builder packs `dependencies` but not their peer dependencies; a missing one crashes the packaged app at startup.
+test('package.json: peer dependencies of runtime dependencies are dependencies too', () => {
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+  for (const dep of Object.keys(pkg.dependencies)) {
+    const depPkg = JSON.parse(readFileSync(join(ROOT, 'node_modules', dep, 'package.json'), 'utf8'))
+    for (const peer of Object.keys(depPkg.peerDependencies ?? {})) {
+      if (peer === 'electron' || depPkg.peerDependenciesMeta?.[peer]?.optional) continue // electron is the runtime itself
+      assert.ok(pkg.dependencies[peer], `${dep} needs ${peer} in dependencies`)
+    }
+  }
+})
