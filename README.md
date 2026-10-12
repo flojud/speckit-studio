@@ -60,7 +60,7 @@ The latest release – every update of `main` that passes CI is released automat
 Older versions are on the [releases page](https://github.com/flojud/speckit-studio/releases).
 
 > **The builds are not signed yet.** Your system will warn you the first time:
-> - **macOS** reports the app as "damaged". After moving it to Applications, run `xattr -cr "/Applications/speckit studio.app"` once.
+> - **macOS** says Apple could not verify the app is free of malware. Move it to Applications, click *Done*, then open *System Settings → Privacy & Security* and click *Open Anyway* – or run `xattr -cr "/Applications/speckit studio.app"` once.
 > - **Windows** SmartScreen: click *More info → Run anyway*.
 > - **Linux**: make the file executable with `chmod +x speckit-studio-linux-x86_64.AppImage`.
 
