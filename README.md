@@ -15,7 +15,6 @@
 </p>
 
 <p align="center">
-
   <video controls>
     <source src="docs/media/speckit-studio-intro.mp4" type="video/mp4">
     Watch the Speckit Studio intro video (35 s)
