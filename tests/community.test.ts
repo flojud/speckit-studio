@@ -103,7 +103,8 @@ test('GitHub Actions CI: workflow definition on ubuntu-latest', () => {
   assert.match(content, /npm run typecheck/, 'Must run typecheck step')
   assert.match(content, /npm test/, 'Must run test step')
   assert.match(content, /npm run build/, 'Must run build step')
-  assert.match(content, /branches:\s*\[\s*main\s*\]/, 'Must trigger on main branch')
+  assert.match(content, /branches:\s*\[\s*devel,\s*main\s*\]/, 'Must trigger on devel and main')
+  assert.match(content, /name:\s*CI\b.*\n\s*runs-on/, 'Job must be named CI, the required status check on main')
 })
 
 test('SECURITY.md: supported versions and private vulnerability reporting', () => {

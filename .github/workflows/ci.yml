@@ -8,7 +8,7 @@ on:
 
 jobs:
   validate:
-    name: Typecheck, Test & Build
+    name: CI # required status check on main (repository rule)
     runs-on: ubuntu-latest
 
     steps:
