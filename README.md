@@ -15,9 +15,11 @@
 </p>
 
 <p align="center">
-  <a href="docs/media/speckit-studio-intro.mp4">
-    <img src="docs/media/speckit-studio-intro.jpg" alt="Watch the Speckit Studio intro video (35 s)" width="100%">
-  </a>
+
+  <video controls>
+    <source src="docs/media/speckit-studio-intro.mp4" type="video/mp4">
+    Watch the Speckit Studio intro video (35 s)
+  </video>
   <br><sub>▶ <a href="docs/media/speckit-studio-intro.mp4">Watch the 35-second intro</a></sub>
 </p>
 
