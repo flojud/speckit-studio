@@ -14,9 +14,11 @@
   <b>Speckit Studio</b> is a local desktop cockpit for <a href="https://github.com/github/spec-kit">GitHub Spec Kit</a>. Run the full Spec-Driven Development loop (<tt>constitution &rarr; specify &rarr; clarify &rarr; plan &rarr; tasks &rarr; analyze &rarr; implement</tt>) directly alongside your coding agents, follow every spec's phase on a Kanban board, and manage epics, roadmaps, dependencies, and wiki docs right inside your local repository.
 </p>
 
+
 <p align="center">
-  <video src="docs/media/speckit-studio-intro.mp4" controls width="100%" max-width="600px">
-    Ihr Browser unterstützt dieses Video nicht.
+  <video width="640" height="360" controls>
+    <source src="docs/media/speckit-studio-intro.mp4" type="video/mp4">
+    Your browser does not support the video tag.
   </video>
   <br>
   <sub>▶ <a href="docs/media/speckit-studio-intro.mp4">Speckit Studio Intro-Video ansehen (35 Sek.)</a></sub>
