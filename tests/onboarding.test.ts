@@ -14,9 +14,9 @@ test('compareSemver orders by major, minor, patch numerically', () => {
   assert.equal(isNewerVersion('0.1.0', '0.1.0'), false)
 })
 
-test('catalog has 8 steps with unique ids, valid semver and 2–5 highlights', () => {
-  assert.equal(ONBOARDING_STEPS.length, 8)
-  assert.equal(new Set(ONBOARDING_STEPS.map((s) => s.id)).size, 8)
+test('catalog has 9 steps with unique ids, valid semver and 2–5 highlights', () => {
+  assert.equal(ONBOARDING_STEPS.length, 9)
+  assert.equal(new Set(ONBOARDING_STEPS.map((s) => s.id)).size, 9)
   for (const s of ONBOARDING_STEPS) {
     assert.match(s.version, /^\d+\.\d+\.\d+$/)
     assert.ok(s.highlights.length >= 2 && s.highlights.length <= 5, s.id)
@@ -30,8 +30,8 @@ test('getUnreadSteps returns steps newer than lastSeenVersion in catalog order',
   assert.deepEqual(getUnreadSteps(catalog, '1.0.0').map((s) => s.id), ['b', 'd'])
   assert.deepEqual(getUnreadSteps(catalog, '1.2.0'), [])
   assert.deepEqual(getUnreadSteps(catalog, undefined).map((s) => s.id), ['a', 'b', 'c', 'd'])
-  assert.equal(getUnreadSteps(ONBOARDING_STEPS, '0.0.9').length, 8)
-  assert.deepEqual(getUnreadSteps(ONBOARDING_STEPS, '0.1.3').map((s) => s.id), ['project-agent'])
+  assert.equal(getUnreadSteps(ONBOARDING_STEPS, '0.0.9').length, 9)
+  assert.deepEqual(getUnreadSteps(ONBOARDING_STEPS, '0.1.3').map((s) => s.id), ['project-agent', 'spec-branches'])
   assert.equal(getUnreadSteps(ONBOARDING_STEPS, '0.2.0').length, 0)
 })
 

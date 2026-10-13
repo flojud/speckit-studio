@@ -37,6 +37,8 @@ type RunOpts = { force?: boolean; worktree?: boolean }
 const isTyping = (t: EventTarget | null): boolean =>
   t instanceof HTMLElement && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))
 
+const ipcMessage = (e: unknown): string => (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
 export default function App(): React.JSX.Element {
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState<number>()
@@ -70,9 +72,16 @@ export default function App(): React.JSX.Element {
     try {
       await openRun(await window.api.startRun(projectId, specKey, agentId, command, args, opts))
     } catch (e) {
-      const message = (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+      const message = ipcMessage(e)
       setError(message.startsWith('BLOCKED: ') ? { message: message.slice(9), retry: { specKey, command, args, worktree: opts.worktree } } : { message })
     }
+  }
+
+  /** Done: merges the spec branch into the base branch (local only, never pushed). */
+  async function mergeSpec(specKey: string): Promise<void> {
+    if (projectId === undefined) return
+    setError(undefined)
+    await window.api.git.merge(projectId, specKey).catch((e) => setError({ message: ipcMessage(e) }))
   }
 
   async function openRun(id: number): Promise<void> {
@@ -458,6 +467,7 @@ export default function App(): React.JSX.Element {
                 onNewSpec={() => setNewSpec(true)}
                 onNewWorkItem={() => setNewWorkItem(true)}
                 onRun={(key, cmd) => startRun(key, cmd)}
+                onMerge={mergeSpec}
               />
             )}
           </div>

@@ -105,7 +105,7 @@ export function autoAnswer(kind: string | undefined, options: PermissionOption[]
   return options.find((o) => o.kind === 'allow_once')?.optionId ?? options.find((o) => o.kind.startsWith('allow'))?.optionId ?? null
 }
 
-/** `<prefix><command> <args>`, the target spec folder and, for specify on a draft, the branch main checked out. */
+/** `<prefix><command> <args>`, the target spec folder and the spec branch main checked out (specify, implement). */
 export const runPrompt = (prefix: string, command: string, args: string, specKey: string | null, branch?: string): string =>
   `${prefix}${command}${args.trim() ? ` ${args.trim()}` : ''}${specKey ? `\n\nTarget feature directory: specs/${specKey}` : ''}${branch ? `\nGit branch: ${branch} (already checked out)` : ''}`
 

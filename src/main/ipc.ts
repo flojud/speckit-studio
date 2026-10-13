@@ -15,13 +15,14 @@ import {
   type PhaseConfig,
   type ProjectAgentInfo,
   type ProjectAgentPreferences,
+  type Spec,
   type WorkItem
 } from '../shared/types'
 import { slugify } from '../shared/wiki'
 import * as db from './db'
 import { addProject, getAnalysisMarkdown, getProject, getRun, latestAnalyses, listAgents, listProjects, listRunEvents, listRuns, removeProject } from './db'
 import { baselineFor, configState, createConfig, createSkillFile, deleteConfig, deleteSkillFile, fileChanges, optimizePrompt, readMarkers, shareConfig, writeConfig } from './agentconfig'
-import { applyGit, createPr, gitInfo, removeWorktree, specRefNames, WORKTREES } from './git'
+import { applyGit, createPr, gitInfo, mergeSpec, removeWorktree, specRefNames, WORKTREES, type GitInfo } from './git'
 import { deleteMcpServer, saveMcpServer, toggleMcpServer } from './mcp'
 import { installAgent } from './registry'
 import { probeAgent } from './runner'
@@ -95,6 +96,14 @@ function projectPath(id: number): string {
   return p.path
 }
 
+/** Specs with their worktree copy where one exists – while a spec has a worktree, its files there are the current state. */
+function withWorktrees(path: string, snap: ReturnType<typeof readProject>, git: GitInfo): Spec[] {
+  return snap.specs.map((s) => {
+    const rel = `${WORKTREES}/${s.key}/specs/${s.key}`
+    return git.worktrees.includes(s.key) && existsSync(resolve(path, rel)) ? readSpec(path, rel, s.key, snap.constitution?.mtime) : s
+  })
+}
+
 export function registerIpc(): void {
   ipcMain.handle('projects:list', () => listProjects())
 
@@ -118,11 +127,7 @@ export function registerIpc(): void {
     ensureWatch(id, path)
     const snap = readProject(path)
     const git = await gitInfo(path)
-    // While a spec has a worktree, its files there are the current state.
-    snap.specs = snap.specs.map((s) => {
-      const rel = `${WORKTREES}/${s.key}/specs/${s.key}`
-      return git.worktrees.includes(s.key) && existsSync(resolve(path, rel)) ? readSpec(path, rel, s.key, snap.constitution?.mtime) : s
-    })
+    snap.specs = withWorktrees(path, snap, git)
     applyGit(snap.specs, git)
     snap.git = git.isRepo ? { defaultBranch: git.defaultBranch } : undefined
     const analyses = new Map(latestAnalyses(id).map(({ specKey, ...a }) => [specKey, a]))
@@ -297,7 +302,23 @@ export function registerIpc(): void {
     await removeWorktree(projectPath(projectId), specKey)
     notifyChanged(projectId)
   })
-  ipcMain.handle('git:createPr', (_e, projectId: number, specKey: string) => createPr(projectPath(projectId), specKey))
+  ipcMain.handle('git:createPr', async (_e, projectId: number, specKey: string) => {
+    const path = projectPath(projectId)
+    return createPr(path, specKey, (await gitInfo(path)).base!)
+  })
+  // Dropping a spec on Done: all tasks ticked → merge its branch into the base branch locally (never pushed).
+  ipcMain.handle('git:merge', async (_e, projectId: number, specKey: string) => {
+    const path = projectPath(projectId)
+    const git = await gitInfo(path)
+    const snap = readProject(path)
+    const spec = withWorktrees(path, snap, git).find((s) => s.key === specKey)
+    if (!git.isRepo || !git.base) throw new Error('Not a git repository.')
+    const done = spec?.tasks.filter((t) => t.done).length ?? 0
+    if (!spec?.tasks.length || done < spec.tasks.length) throw new Error(`${specKey} has open tasks (${done}/${spec?.tasks.length ?? 0} done) – finish or tick them first.`)
+    if (!git.branches.includes(specKey) || git.merged.includes(specKey)) throw new Error(`${specKey} has no unmerged branch – nothing to merge.`)
+    await mergeSpec(path, specKey, git.base)
+    notifyChanged(projectId)
+  })
 
   // PM mutations: every change notifies the renderer to reload the snapshot.
   const mutate = <A extends unknown[]>(channel: string, fn: (projectId: number, ...args: A) => void): void =>

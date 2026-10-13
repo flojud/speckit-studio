@@ -6,7 +6,7 @@ import { applyDangerousPermissions, autoAnswer, resolveEffectiveConfig, runPromp
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { addRunEvent, createRun, getAgent, getGlobalDefaults, getPhaseConfigs, getPm, getProject, getProjectAgentPreferences, getSetting, saveAnalysis, setAgentOptions, setRunStatus } from './db.ts'
-import { addWorktree, ensureBranch, WORKTREES } from './git.ts'
+import { addWorktree, commitSpec, ensureBranch, WORKTREES } from './git.ts'
 import { applyPm } from '../shared/pm.ts'
 import { readMcpConfig, toAcpMcpServers, validateMcpConfig } from './mcp.ts'
 import { startAgent, type AgentSession } from './runner.ts'
@@ -60,6 +60,11 @@ async function turn(runId: number, text: string): Promise<void> {
     if (!active.has(runId)) return // finished/cancelled meanwhile
     if (run.command === 'analyze' && run.specKey && stop === 'end_turn' && run.turnText.trim())
       saveAnalysis(runId, run.projectId, run.specKey, countCritical(run.turnText), run.turnText)
+    // Each finished implement turn lands as a commit on the spec branch; a failed commit never fails the run.
+    if (run.command === 'implement' && run.specKey && stop === 'end_turn') {
+      const hash = await commitSpec(run.cwd, run.specKey).catch((e: Error) => e)
+      if (hash) emit(runId, { type: 'notice', text: hash instanceof Error ? `Not committed: ${hash.message}` : `Committed ${hash} on ${run.specKey}` })
+    }
     setStatus(runId, stop === 'cancelled' ? 'cancelled' : 'waiting')
   } catch (e) {
     if (active.has(runId)) setStatus(runId, 'failed', (e as Error).message)
@@ -106,18 +111,19 @@ export async function startRun(projectId: number, specKey: string | null, agentI
     const spec = specs.find((s) => s.key === specKey)
     if (spec?.blocked) throw new Error(`BLOCKED: ${specKey} is blocked by ${spec.blockedBy!.join(', ')}. Use "Run anyway" to implement regardless.`)
   }
-  // Specify on a draft: the description comes from draft.md and the spec branch is checked out before the agent starts.
+  // Specify on a draft: the description comes from draft.md. Specify and implement check out the spec branch in the
+  // main tree before the agent starts (implement only from a clean tree), so the work lands there.
   let branch: string | undefined
   if (command === 'specify' && specKey) {
     if (!args.trim()) args = specs.find((s) => s.key === specKey)?.description ?? ''
     if (!args.trim()) throw new Error('Add a description to the draft first.')
-    if (cwd === project.path) {
-      starting.add(cwd)
-      try {
-        if (await ensureBranch(project.path, specKey)) branch = specKey
-      } finally {
-        starting.delete(cwd)
-      }
+  }
+  if ((command === 'specify' || command === 'implement') && specKey && cwd === project.path) {
+    starting.add(cwd)
+    try {
+      if (await ensureBranch(project.path, specKey, command === 'implement')) branch = specKey
+    } finally {
+      starting.delete(cwd)
     }
   }
   // Work item runs are keyed by the item but are not Spec Kit features.

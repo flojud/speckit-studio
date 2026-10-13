@@ -104,7 +104,8 @@ const api = {
   },
   git: {
     removeWorktree: (projectId: number, specKey: string): Promise<void> => ipcRenderer.invoke('git:removeWorktree', projectId, specKey),
-    createPr: (projectId: number, specKey: string): Promise<string> => ipcRenderer.invoke('git:createPr', projectId, specKey)
+    createPr: (projectId: number, specKey: string): Promise<string> => ipcRenderer.invoke('git:createPr', projectId, specKey),
+    merge: (projectId: number, specKey: string): Promise<void> => ipcRenderer.invoke('git:merge', projectId, specKey)
   },
   pm: {
     createEpic: (projectId: number, title: string, goal = ''): Promise<void> => ipcRenderer.invoke('pm:epic:create', projectId, title, goal),

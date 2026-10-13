@@ -114,6 +114,19 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
       'Add, edit and switch MCP servers in .mcp.json – enabled ones are passed to every run',
       'Health badges flag broken JSON, missing commands and unknown binaries'
     ]
+  },
+  {
+    id: 'spec-branches',
+    title: 'Spec Branches, Commits & Done',
+    category: 'Core Concepts',
+    icon: 'folder-git',
+    version: '0.2.0',
+    summary: 'Implement runs work on the spec branch and commit what they change; dropping a spec on Done merges it.',
+    highlights: [
+      'Implement switches to the spec branch first and commits each finished turn there, naming the ticked tasks',
+      'Drop a spec with all tasks ticked on Done to merge its branch into devel (or the default branch) – locally, never pushed',
+      'Squash-merged pull requests count as merged too'
+    ]
   }
 ]
 
