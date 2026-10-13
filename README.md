@@ -16,10 +16,12 @@
 
 
 <p align="center">
-  <video width="640" height="360" controls>
-    <source src="docs/media/speckit-studio-intro.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+
+
+https://github.com/user-attachments/assets/99f2e621-0d00-4938-b166-cbce8014cf99
+
+
+  
   <br>
   <sub>▶ <a href="docs/media/speckit-studio-intro.mp4">Speckit Studio Intro-Video ansehen (35 Sek.)</a></sub>
 </p>
