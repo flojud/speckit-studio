@@ -1,10 +1,9 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
-import { failStaleRuns, openDb, upsertAgent } from './db'
+import { failStaleRuns, getSetting, openDb, upsertAgent } from './db'
 import { closeAllRuns } from './runs'
-import { adoptShellPath } from './env'
-import { autoUpdater } from 'electron-updater'
+import { addToolPaths, adoptShellPath } from './env'
 import { registerIpc } from './ipc'
 import icon from '../../resources/icon.png?asset'
 
@@ -32,6 +31,7 @@ app.whenReady().then(async () => {
   if (!app.isPackaged) app.dock?.setIcon(icon)
   await adoptShellPath()
   openDb(join(app.getPath('userData'), 'studio.db'))
+  addToolPaths(getSetting('toolPaths', {}))
   failStaleRuns()
   // Deterministic fake agent for UI development; Electron runs it as plain Node.
   if (is.dev)
@@ -45,7 +45,6 @@ app.whenReady().then(async () => {
   registerIpc()
   createWindow()
   // Without a `publish` target in electron-builder.yml there is no app-update.yml and this is a silent no-op.
-  if (app.isPackaged) autoUpdater.checkForUpdatesAndNotify().catch(() => {})
   app.on('activate', () => BrowserWindow.getAllWindows().length === 0 && createWindow())
 })
 

@@ -14,7 +14,7 @@ mac:
   target:
     - target: dmg
       arch: [arm64, x64]
-    - target: zip # required by electron-updater on macOS
+    - target: zip # needed by electron-updater on macOS, should we add self-update later
       arch: [arm64, x64]
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
@@ -27,7 +27,8 @@ linux:
   target: AppImage
   category: Development
 npmRebuild: false
-# Auto-update: add a publish target, e.g.
+# The app only hints at newer GitHub releases (newerRelease in src/main/env.ts).
+# Self-update would need electron-updater, a publish target and the latest*.yml files in the release, e.g.
 # publish:
 #   provider: github
 #   owner: <github-user>

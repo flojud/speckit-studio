@@ -14,6 +14,18 @@
   <b>Speckit Studio</b> is a local desktop cockpit for <a href="https://github.com/github/spec-kit">GitHub Spec Kit</a>. Run the full Spec-Driven Development loop (<tt>constitution &rarr; specify &rarr; clarify &rarr; plan &rarr; tasks &rarr; analyze &rarr; implement</tt>) directly alongside your coding agents, follow every spec's phase on a Kanban board, and manage epics, roadmaps, dependencies, and wiki docs right inside your local repository.
 </p>
 
+
+<p align="center">
+
+
+https://github.com/user-attachments/assets/99f2e621-0d00-4938-b166-cbce8014cf99
+
+
+  
+  <br>
+  <sub>▶ <a href="docs/media/speckit-studio-intro.mp4">Speckit Studio Intro-Video ansehen (35 Sek.)</a></sub>
+</p>
+
 <p align="center">
   <sub>A personal project by <a href="https://github.com/flojud">Florian Jud</a>, shared as open source under the MIT License. It builds on GitHub Spec Kit but is not affiliated with GitHub.</sub>
 </p>

@@ -37,6 +37,8 @@ type RunOpts = { force?: boolean; worktree?: boolean }
 const isTyping = (t: EventTarget | null): boolean =>
   t instanceof HTMLElement && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))
 
+const ipcMessage = (e: unknown): string => (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
 export default function App(): React.JSX.Element {
   const [projects, setProjects] = useState<Project[]>([])
   const [projectId, setProjectId] = useState<number>()
@@ -54,6 +56,7 @@ export default function App(): React.JSX.Element {
   // undefined until loaded; null = never finished or skipped the guide
   const [onboarding, setOnboarding] = useState<OnboardingPreferences | null>()
   const [appVersion, setAppVersion] = useState('')
+  const [update, setUpdate] = useState<{ version: string; url: string } | null>(null)
   const [guide, setGuide] = useState<OnboardingGuideMode>()
 
   useEffect(() => {
@@ -70,9 +73,16 @@ export default function App(): React.JSX.Element {
     try {
       await openRun(await window.api.startRun(projectId, specKey, agentId, command, args, opts))
     } catch (e) {
-      const message = (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+      const message = ipcMessage(e)
       setError(message.startsWith('BLOCKED: ') ? { message: message.slice(9), retry: { specKey, command, args, worktree: opts.worktree } } : { message })
     }
+  }
+
+  /** Done: merges the spec branch into the base branch (local only, never pushed). */
+  async function mergeSpec(specKey: string): Promise<void> {
+    if (projectId === undefined) return
+    setError(undefined)
+    await window.api.git.merge(projectId, specKey).catch((e) => setError({ message: ipcMessage(e) }))
   }
 
   async function openRun(id: number): Promise<void> {
@@ -87,6 +97,7 @@ export default function App(): React.JSX.Element {
       setAppVersion(version)
       if (shouldAutoOpenOnboarding({ prefs, projectCount: ps.length })) setGuide('all')
     })
+    window.api.newerRelease().then(setUpdate)
   }, [])
 
   const load = useCallback((id: number) => window.api.snapshot(id).then(setSnap), [])
@@ -314,6 +325,11 @@ export default function App(): React.JSX.Element {
             ✨ {onboarding ? `What's New (${unread.length})` : 'Take the tour'}
           </button>
         )}
+        {update && (
+          <a href={update.url} target="_blank" rel="noreferrer" className="mx-2 mb-1 rounded-md px-2 py-1.5 text-accent hover:bg-raised">
+            ⬇ Version {update.version} available
+          </a>
+        )}
         {appVersion && <div className="px-4 pb-0.5 text-[11px] font-mono text-dim/60 select-text">v{appVersion}</div>}
         <button onClick={() => setView({ kind: 'settings' })} className={`mx-2 rounded-md px-2 py-1.5 text-left hover:bg-raised hover:text-fg ${view.kind === 'settings' ? 'bg-raised text-fg' : 'text-dim'}`}>
           Settings
@@ -336,18 +352,28 @@ export default function App(): React.JSX.Element {
               {crumb && <span>/ <span className="text-fg">{crumb}</span></span>}
               <span className="ml-auto flex items-center gap-3 text-[11px]">
                 {snap?.integration && <span>{snap.integration} · {snap.commandPrefix}*</span>}
-                <select
-                  value={agentId}
-                  onChange={(e) => setAgentId(e.target.value)}
-                  className="no-drag bg-raised border border-line rounded px-1.5 py-0.5 text-fg outline-none"
-                  title="Agent for new runs"
-                >
-                  {agents.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
+                {snap?.studioAgent ? (
+                  <button
+                    onClick={() => setView({ kind: 'agentConfig' })}
+                    className="no-drag bg-raised border border-line rounded px-1.5 py-0.5 text-fg hover:border-accent"
+                    title="This project has its own agent – change it in Agent Config"
+                  >
+                    {agents.find((a) => a.id === snap.studioAgent)?.name ?? snap.studioAgent} · project
+                  </button>
+                ) : (
+                  <select
+                    value={agentId}
+                    onChange={(e) => setAgentId(e.target.value)}
+                    className="no-drag bg-raised border border-line rounded px-1.5 py-0.5 text-fg outline-none"
+                    title="Agent for new runs"
+                  >
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </span>
             </>
           )}
@@ -425,6 +451,8 @@ export default function App(): React.JSX.Element {
               <AgentConfigView
                 projectId={project.id}
                 rev={rev}
+                agentId={agentId}
+                projectAgentId={snap?.studioAgent}
                 onOpenRun={async (runId) => {
                   const runs = await window.api.listRuns(project.id)
                   const match = runs.find((r) => r.id === runId)
@@ -446,6 +474,7 @@ export default function App(): React.JSX.Element {
                 onNewSpec={() => setNewSpec(true)}
                 onNewWorkItem={() => setNewWorkItem(true)}
                 onRun={(key, cmd) => startRun(key, cmd)}
+                onMerge={mergeSpec}
               />
             )}
           </div>

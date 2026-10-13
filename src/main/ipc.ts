@@ -4,15 +4,29 @@ import { readFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { applyPm } from '../shared/pm'
 import { workItemPrompt } from '../shared/runs'
-import { WORK_ITEM_CATEGORIES, WORK_ITEM_STATUSES, type AgentConfig, type ConfigAgent, type ConfigKind, type GlobalAgentDefaults, type PhaseConfig, type WorkItem } from '../shared/types'
+import {
+  WORK_ITEM_CATEGORIES,
+  WORK_ITEM_STATUSES,
+  type AgentConfig,
+  type ConfigAgent,
+  type ConfigKind,
+  type GlobalAgentDefaults,
+  type McpServerConfig,
+  type PhaseConfig,
+  type ProjectAgentInfo,
+  type ProjectAgentPreferences,
+  type Spec,
+  type WorkItem
+} from '../shared/types'
 import { slugify } from '../shared/wiki'
 import * as db from './db'
 import { addProject, getAnalysisMarkdown, getProject, getRun, latestAnalyses, listAgents, listProjects, listRunEvents, listRuns, removeProject } from './db'
-import { baselineFor, configState, createConfig, deleteConfig, fileChanges, optimizePrompt, readMarkers, shareConfig, writeConfig } from './agentconfig'
-import { applyGit, createPr, gitInfo, removeWorktree, specRefNames, WORKTREES } from './git'
+import { baselineFor, configState, createConfig, createSkillFile, deleteConfig, deleteSkillFile, fileChanges, optimizePrompt, readMarkers, shareConfig, writeConfig } from './agentconfig'
+import { applyGit, createPr, gitInfo, mergeSpec, removeWorktree, specRefNames, WORKTREES, type GitInfo } from './git'
+import { deleteMcpServer, saveMcpServer, toggleMcpServer } from './mcp'
 import { installAgent } from './registry'
 import { probeAgent } from './runner'
-import { checkTools, specifyInit } from './env'
+import { addToolPaths, adoptShellPath, checkTools, newerRelease, onPath, specifyInit } from './env'
 import { answerPermission, cancelProjectRuns, cancelRun, finishRun, hasActiveRun, replyRun, startRun, WORK_ITEM_COMMAND, type StartOptions } from './runs'
 import {
   backlinks,
@@ -23,12 +37,14 @@ import {
   nextWorkItemKey,
   numberingScheme,
   parseWorkItem,
+  readIntegration,
   readProject,
   readSpec,
   setTaskDone,
   WIKI_DIR,
   WORK_ITEMS_DIR,
-  workItemMarkdown
+  workItemMarkdown,
+  writeStudioAgent
 } from './speckit'
 import { watchProject } from './watcher'
 
@@ -80,6 +96,14 @@ function projectPath(id: number): string {
   return p.path
 }
 
+/** Specs with their worktree copy where one exists – while a spec has a worktree, its files there are the current state. */
+function withWorktrees(path: string, snap: ReturnType<typeof readProject>, git: GitInfo): Spec[] {
+  return snap.specs.map((s) => {
+    const rel = `${WORKTREES}/${s.key}/specs/${s.key}`
+    return git.worktrees.includes(s.key) && existsSync(resolve(path, rel)) ? readSpec(path, rel, s.key, snap.constitution?.mtime) : s
+  })
+}
+
 export function registerIpc(): void {
   ipcMain.handle('projects:list', () => listProjects())
 
@@ -103,11 +127,7 @@ export function registerIpc(): void {
     ensureWatch(id, path)
     const snap = readProject(path)
     const git = await gitInfo(path)
-    // While a spec has a worktree, its files there are the current state.
-    snap.specs = snap.specs.map((s) => {
-      const rel = `${WORKTREES}/${s.key}/specs/${s.key}`
-      return git.worktrees.includes(s.key) && existsSync(resolve(path, rel)) ? readSpec(path, rel, s.key, snap.constitution?.mtime) : s
-    })
+    snap.specs = withWorktrees(path, snap, git)
     applyGit(snap.specs, git)
     snap.git = git.isRepo ? { defaultBranch: git.defaultBranch } : undefined
     const analyses = new Map(latestAnalyses(id).map(({ specKey, ...a }) => [specKey, a]))
@@ -266,11 +286,19 @@ export function registerIpc(): void {
   })
   ipcMain.handle('settings:setGlobalDefaults', (_e, defaults: GlobalAgentDefaults) => db.setGlobalDefaults(defaults))
   ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.handle('app:newerRelease', () => newerRelease(app.getVersion()))
   ipcMain.handle('settings:get', (_e, key: string) => db.getSetting(key, null))
   ipcMain.handle('settings:set', (_e, key: string, value: unknown) => db.setSetting(key, value))
 
   // Environment & onboarding
-  ipcMain.handle('env:tools', () => checkTools())
+  // rescan: read the login shell's PATH again and put the folders of configured tool paths first.
+  ipcMain.handle('env:tools', async (_e, rescan?: boolean) => {
+    if (rescan) {
+      await adoptShellPath()
+      addToolPaths(db.getSetting('toolPaths', {}))
+    }
+    return checkTools()
+  })
   ipcMain.handle('specify:init', async (_e, projectId: number, integration: string) => {
     const result = await specifyInit(projectPath(projectId), integration)
     notifyChanged(projectId)
@@ -282,7 +310,23 @@ export function registerIpc(): void {
     await removeWorktree(projectPath(projectId), specKey)
     notifyChanged(projectId)
   })
-  ipcMain.handle('git:createPr', (_e, projectId: number, specKey: string) => createPr(projectPath(projectId), specKey))
+  ipcMain.handle('git:createPr', async (_e, projectId: number, specKey: string) => {
+    const path = projectPath(projectId)
+    return createPr(path, specKey, (await gitInfo(path)).base!)
+  })
+  // Dropping a spec on Done: all tasks ticked → merge its branch into the base branch locally (never pushed).
+  ipcMain.handle('git:merge', async (_e, projectId: number, specKey: string) => {
+    const path = projectPath(projectId)
+    const git = await gitInfo(path)
+    const snap = readProject(path)
+    const spec = withWorktrees(path, snap, git).find((s) => s.key === specKey)
+    if (!git.isRepo || !git.base) throw new Error('Not a git repository.')
+    const done = spec?.tasks.filter((t) => t.done).length ?? 0
+    if (!spec?.tasks.length || done < spec.tasks.length) throw new Error(`${specKey} has open tasks (${done}/${spec?.tasks.length ?? 0} done) – finish or tick them first.`)
+    if (!git.branches.includes(specKey) || git.merged.includes(specKey)) throw new Error(`${specKey} has no unmerged branch – nothing to merge.`)
+    await mergeSpec(path, specKey, git.base)
+    notifyChanged(projectId)
+  })
 
   // PM mutations: every change notifies the renderer to reload the snapshot.
   const mutate = <A extends unknown[]>(channel: string, fn: (projectId: number, ...args: A) => void): void =>
@@ -338,6 +382,43 @@ export function registerIpc(): void {
     const baseline = baselineFor(root, targets, path === null)
     return startRun(projectId, null, agentId, 'optimize', '', { prompt, baseline })
   })
+  ipcMain.handle('skills:createFile', async (_e, projectId: number, skillDir: string, rel: string, content: string) => {
+    const p = await createSkillFile(projectPath(projectId), skillDir, rel, content)
+    notifyChanged(projectId)
+    return p
+  })
+  ipcMain.handle('skills:deleteFile', async (_e, projectId: number, path: string) => {
+    await deleteSkillFile(projectPath(projectId), path)
+    notifyChanged(projectId)
+  })
+
+  // Project agent: assignment in .specify/integration.json, preferences in the app DB
+  ipcMain.handle('project:getAgent', (_e, projectId: number, fallbackAgentId: string): ProjectAgentInfo => {
+    const root = projectPath(projectId)
+    const assigned = readIntegration(root).studioAgent
+    const agentId = assigned ?? fallbackAgentId
+    const agent = db.getAgent(agentId)
+    return {
+      agentId,
+      inherited: !assigned,
+      name: agent?.name ?? agentId,
+      command: agent ? [agent.command, ...agent.args].join(' ') : '',
+      status: !agent ? 'unknown-agent' : onPath(agent.command, root) ? 'ready' : 'missing-binary',
+      preferences: db.getProjectAgentPreferences(projectId)
+    }
+  })
+  ipcMain.handle('project:setAgent', (_e, projectId: number, agentId: string | null, preferences: ProjectAgentPreferences) => {
+    if (agentId && !db.getAgent(agentId)) throw new Error(`Unknown agent ${agentId}`)
+    writeStudioAgent(projectPath(projectId), agentId)
+    db.setProjectAgentPreferences(projectId, preferences)
+    notifyChanged(projectId)
+  })
+
+  // MCP servers in .mcp.json (the list comes with agentConfig:list)
+  mutate('mcp:saveServer', (p, server: McpServerConfig, oldName?: string) => saveMcpServer(projectPath(p), server, oldName))
+  mutate('mcp:toggleServer', (p, name: string, enabled: boolean) => toggleMcpServer(projectPath(p), name, enabled))
+  mutate('mcp:deleteServer', (p, name: string) => deleteMcpServer(projectPath(p), name))
+
   ipcMain.handle('agentConfig:changes', (_e, runId: number) => {
     const run = getRun(runId)
     if (!run) return []

@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { applyDangerousPermissions, autoAnswer, foldEvents, isDangerousPermissionsSupported, pickConfig, resolveEffectiveConfig, runPrompt, workItemPrompt } from '../src/shared/runs.ts'
+import { applyDangerousPermissions, autoAnswer, foldEvents, isDangerousPermissionsSupported, pickConfig, resolveEffectiveConfig, runPrompt, withInstructions, workItemPrompt } from '../src/shared/runs.ts'
 import { ensureBranch } from '../src/main/git.ts'
 import { draftMarkdown, readProject } from '../src/main/speckit.ts'
 import type { RunEvent } from '../src/shared/types.ts'
@@ -276,5 +276,67 @@ test('work item runs: plain prompt with file, metadata and request; run keyed by
   const [run] = listRuns(p.id, 'WI-001-faq')
   assert.deepEqual([run.specKey, run.prompt], ['WI-001-faq', prompt])
   await assert.rejects(startRun(p.id, 'WI-001-faq', 'fake', WORK_ITEM_COMMAND, '', { prompt }), /already active/)
+  cancelProjectRuns(p.id)
+})
+
+test('resolveEffectiveConfig: project agent and preferences sit between phase overrides and global defaults', () => {
+  const project = { agentId: 'proj', preferences: { model: 'pm', effort: 'pe' } }
+  const global = { model: 'gm', effort: 'ge' }
+  assert.deepEqual(resolveEffectiveConfig('plan', {}, global, 'header', project), { agentId: 'proj', model: 'pm', effort: 'pe' })
+  assert.deepEqual(resolveEffectiveConfig('plan', { plan: { agentId: 'phase', model: 'phm' } }, global, 'header', project), { agentId: 'phase', model: 'phm', effort: 'pe' })
+  assert.deepEqual(resolveEffectiveConfig('plan', {}, global, 'header', { preferences: { effort: ' ' } }), { agentId: 'header', model: 'gm', effort: 'ge' })
+  assert.equal(withInstructions('/speckit-plan', ' Use pnpm. '), '/speckit-plan\n\nProject instructions:\nUse pnpm.')
+  assert.equal(withInstructions('/speckit-plan', '  '), '/speckit-plan')
+})
+
+test('startRun: project agent, preferences and instructions; enabled MCP servers reach the ACP session', async () => {
+  const { openDb, addProject, upsertAgent, listRunEvents, listRuns, setProjectAgentPreferences } = await import('../src/main/db.ts')
+  const { startRun, cancelProjectRuns } = await import('../src/main/runs.ts')
+  openDb(':memory:')
+  const fakeArgs = [join(import.meta.dirname, 'fake-agent.mjs')]
+  upsertAgent({ id: 'fake', name: 'Fake', command: process.execPath, args: fakeArgs, env: {} })
+  const dir = mkdtempSync(join(tmpdir(), 'runs-mcp-'))
+  mkdirSync(join(dir, '.specify'))
+  writeFileSync(join(dir, '.specify/integration.json'), JSON.stringify({ integration: 'claude', studio_agent: 'fake' }))
+  writeFileSync(
+    join(dir, '.mcp.json'),
+    JSON.stringify({
+      mcpServers: {
+        local: { command: 'node', args: ['server.js'], env: { A: '1' } },
+        off: { command: 'node', disabled: true },
+        web: { type: 'http', url: 'https://mcp.example/mcp' },
+        stream: { type: 'sse', url: 'https://mcp.example/sse' }
+      }
+    })
+  )
+  const p = addProject(dir)
+  setProjectAgentPreferences(p.id, { model: 'fake-smart', instructions: 'Be brief.' })
+
+  const reply = async (runId: number): Promise<{ text: string; notices: string[] }> => {
+    for (let i = 0; i < 100; i++) {
+      const events = listRunEvents(runId)
+      const text = events.flatMap((e) => (e.type === 'update' && e.update.sessionUpdate === 'agent_message_chunk' ? [e.update.content?.text ?? ''] : [])).join('')
+      if (text.includes('MCP:')) return { text, notices: events.flatMap((e) => (e.type === 'notice' ? [e.text] : [])) }
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    throw new Error('no reply')
+  }
+  // 'claude' is the header agent; the project assigns 'fake'
+  const runId = await startRun(p.id, null, 'claude', 'plan', '')
+  const { text, notices } = await reply(runId)
+  assert.match(text, /MCP: local\(node\), web\(http\)$/m) // disabled omitted, sse dropped (agent supports http only)
+  assert.match(text, /Model: fake-smart/)
+  assert.ok(notices.includes('MCP servers: local, web, stream'))
+  assert.ok(notices.includes('MCP server "stream" skipped: Fake does not support sse MCP servers.'))
+  const run = listRuns(p.id).find((r) => r.id === runId)!
+  assert.equal(run.agent, 'fake')
+  assert.match(run.prompt, /\n\nProject instructions:\nBe brief\.$/)
+  cancelProjectRuns(p.id)
+
+  // A broken .mcp.json never blocks the run
+  writeFileSync(join(dir, '.mcp.json'), '{ nope')
+  const broken = await reply(await startRun(p.id, null, 'claude', 'plan', ''))
+  assert.match(broken.text, /MCP: none/)
+  assert.ok(broken.notices.some((n) => n.startsWith('.mcp.json has a syntax error')))
   cancelProjectRuns(p.id)
 })

@@ -4,6 +4,7 @@
 // asks permission to write `fake.md`; if allowed and a feature dir is set, writes it there.
 // Prompts containing "slow" wait 5 s (cancellable). FAKE_REQUIRE_AUTH=1 refuses sessions until `authenticate`.
 // Offers a model (fake-fast, fake-smart) and an effort (low, high) config option like claude-agent-acp.
+// Supports http MCP servers (not sse) and names the session's MCP servers in each reply.
 import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION, RequestError } from '@agentclientprotocol/sdk'
 import { Readable, Writable } from 'node:stream'
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
@@ -16,6 +17,7 @@ const sleep = (ms, signal) =>
   })
 
 let cwd = process.cwd()
+let mcp = []
 let abort
 let authed = process.env.FAKE_REQUIRE_AUTH ? null : 'none'
 const config = { model: 'fake-fast', effort: 'low' }
@@ -29,11 +31,12 @@ const authMethods = process.env.FAKE_REQUIRE_AUTH
 
 new AgentSideConnection(
   (conn) => ({
-    initialize: async () => ({ protocolVersion: PROTOCOL_VERSION, agentCapabilities: {}, authMethods }),
+    initialize: async () => ({ protocolVersion: PROTOCOL_VERSION, agentCapabilities: { mcpCapabilities: { http: true } }, authMethods }),
     authenticate: async ({ methodId }) => ((authed = methodId), {}),
     newSession: async (p) => {
       if (!authed) throw RequestError.authRequired()
       cwd = p.cwd
+      mcp = p.mcpServers
       return { sessionId: 'fake-session', configOptions: configOptions() }
     },
     setSessionConfigOption: async ({ configId, value }) => {
@@ -78,6 +81,7 @@ new AgentSideConnection(
       await say('agent_message_chunk', `Received: ${text.split('\n')[0]}`)
       await say('agent_message_chunk', `\n\nFeature dir: ${dir ?? 'none'}`)
       await say('agent_message_chunk', `\n\nModel: ${config.model}, effort: ${config.effort}`)
+      await say('agent_message_chunk', `\n\nMCP: ${mcp.map((s) => `${s.name}(${s.type ?? s.command})`).join(', ') || 'none'}`)
       if (authed !== 'none') await say('agent_message_chunk', `\n\nAuth: ${authed}`)
       await conn.sessionUpdate({ sessionId, update: { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'Read spec.md', kind: 'read', status: 'in_progress' } })
       await conn.sessionUpdate({ sessionId, update: { sessionUpdate: 'plan', entries: [{ content: 'Read spec', priority: 'high', status: 'completed' }, { content: 'Write file', priority: 'high', status: 'in_progress' }] } })

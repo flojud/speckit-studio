@@ -2,14 +2,15 @@ import electron from 'electron'
 const BrowserWindow = typeof electron === 'object' && electron !== null ? (electron as typeof import('electron')).BrowserWindow : undefined
 import type { RunEvent, RunStatus } from '../shared/types.ts'
 import { countCritical } from '../shared/clarify.ts'
-import { applyDangerousPermissions, autoAnswer, resolveEffectiveConfig, runPrompt } from '../shared/runs.ts'
+import { applyDangerousPermissions, autoAnswer, resolveEffectiveConfig, runPrompt, withInstructions } from '../shared/runs.ts'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { addRunEvent, createRun, getAgent, getGlobalDefaults, getPhaseConfigs, getPm, getProject, getSetting, saveAnalysis, setAgentOptions, setRunStatus } from './db.ts'
-import { addWorktree, ensureBranch, WORKTREES } from './git.ts'
+import { addRunEvent, createRun, getAgent, getGlobalDefaults, getPhaseConfigs, getPm, getProject, getProjectAgentPreferences, getSetting, saveAnalysis, setAgentOptions, setRunStatus } from './db.ts'
+import { addWorktree, commitSpec, ensureBranch, WORKTREES } from './git.ts'
 import { applyPm } from '../shared/pm.ts'
+import { readMcpConfig, toAcpMcpServers, validateMcpConfig } from './mcp.ts'
 import { startAgent, type AgentSession } from './runner.ts'
-import { readProject } from './speckit.ts'
+import { readIntegration, readProject } from './speckit.ts'
 
 interface Active {
   projectId: number
@@ -59,6 +60,11 @@ async function turn(runId: number, text: string): Promise<void> {
     if (!active.has(runId)) return // finished/cancelled meanwhile
     if (run.command === 'analyze' && run.specKey && stop === 'end_turn' && run.turnText.trim())
       saveAnalysis(runId, run.projectId, run.specKey, countCritical(run.turnText), run.turnText)
+    // Each finished implement turn lands as a commit on the spec branch; a failed commit never fails the run.
+    if (run.command === 'implement' && run.specKey && stop === 'end_turn') {
+      const hash = await commitSpec(run.cwd, run.specKey).catch((e: Error) => e)
+      if (hash) emit(runId, { type: 'notice', text: hash instanceof Error ? `Not committed: ${hash.message}` : `Committed ${hash} on ${run.specKey}` })
+    }
     setStatus(runId, stop === 'cancelled' ? 'cancelled' : 'waiting')
   } catch (e) {
     if (active.has(runId)) setStatus(runId, 'failed', (e as Error).message)
@@ -74,7 +80,7 @@ export interface StartOptions {
 }
 
 /**
- * Starts `<prefix><command> <args>`. The agent is the phase default from settings, else `agentId`.
+ * Starts `<prefix><command> <args>`. The agent is the phase default from settings, else the project agent, else `agentId`.
  * One active run per spec and per working directory, so worktree runs can go in parallel.
  * `implement` on a blocked spec needs `force`.
  */
@@ -82,7 +88,9 @@ export async function startRun(projectId: number, specKey: string | null, agentI
   const project = getProject(projectId)
   const phaseConfigs = getPhaseConfigs()
   const globalDefaults = getGlobalDefaults()
-  const effective = resolveEffectiveConfig(command, phaseConfigs, globalDefaults, agentId)
+  const preferences = getProjectAgentPreferences(projectId)
+  const projectAgent = project ? readIntegration(project.path).studioAgent : undefined
+  const effective = resolveEffectiveConfig(command, phaseConfigs, globalDefaults, agentId, { agentId: projectAgent, preferences })
   const targetAgentId = effective.agentId ?? agentId
   const baseAgent = getAgent(targetAgentId) ?? getAgent(agentId)
   if (!project || !baseAgent) throw new Error('Unknown project or agent')
@@ -103,28 +111,36 @@ export async function startRun(projectId: number, specKey: string | null, agentI
     const spec = specs.find((s) => s.key === specKey)
     if (spec?.blocked) throw new Error(`BLOCKED: ${specKey} is blocked by ${spec.blockedBy!.join(', ')}. Use "Run anyway" to implement regardless.`)
   }
-  // Specify on a draft: the description comes from draft.md and the spec branch is checked out before the agent starts.
+  // Specify on a draft: the description comes from draft.md. Specify and implement check out the spec branch in the
+  // main tree before the agent starts (implement only from a clean tree), so the work lands there.
   let branch: string | undefined
   if (command === 'specify' && specKey) {
     if (!args.trim()) args = specs.find((s) => s.key === specKey)?.description ?? ''
     if (!args.trim()) throw new Error('Add a description to the draft first.')
-    if (cwd === project.path) {
-      starting.add(cwd)
-      try {
-        if (await ensureBranch(project.path, specKey)) branch = specKey
-      } finally {
-        starting.delete(cwd)
-      }
+  }
+  if ((command === 'specify' || command === 'implement') && specKey && cwd === project.path) {
+    starting.add(cwd)
+    try {
+      if (await ensureBranch(project.path, specKey, command === 'implement')) branch = specKey
+    } finally {
+      starting.delete(cwd)
     }
   }
   // Work item runs are keyed by the item but are not Spec Kit features.
   const dir = specKey && command !== WORK_ITEM_COMMAND ? `specs/${specKey}` : undefined
-  const prompt = opts.prompt ?? runPrompt(commandPrefix, command, args, specKey, branch)
+  const prompt = withInstructions(opts.prompt ?? runPrompt(commandPrefix, command, args, specKey, branch), preferences.instructions)
   const run = createRun({ projectId, specKey, agent: agent.id, prompt })
   const entry: Active = { projectId, specKey, cwd, command, turnText: '', permissions: new Map(), status: 'running' }
   active.set(run.id, entry)
   if (opts.baseline) emit(run.id, { type: 'baseline', files: opts.baseline })
   emit(run.id, { type: 'user', text: prompt })
+
+  // Project MCP servers (.mcp.json of the main tree, also for worktree runs); a broken file never blocks the run.
+  const mcp = readMcpConfig(project.path)
+  const mcpServers = toAcpMcpServers(mcp.servers)
+  if (mcp.error) emit(run.id, { type: 'notice', text: `.mcp.json has a syntax error, starting without MCP servers: ${mcp.error}` })
+  for (const f of validateMcpConfig(project.path)) if (f.rule === 'mcp-missing-binary') emit(run.id, { type: 'notice', text: f.reason })
+  if (mcpServers.length) emit(run.id, { type: 'notice', text: `MCP servers: ${mcpServers.map((s) => s.name).join(', ')}` })
 
   startAgent(agent, cwd, { ...(dir ? { SPECIFY_FEATURE_DIRECTORY: dir } : {}), ...(branch ? { GIT_BRANCH_NAME: branch } : {}) }, {
     onUpdate: (update) => {
@@ -150,7 +166,7 @@ export async function startRun(projectId: number, specKey: string | null, agentI
     },
     onNotice: (text) => emit(run.id, { type: 'notice', text }),
     onExit: (error) => active.get(run.id) === entry && setStatus(run.id, error ? 'failed' : 'done', error)
-  }, { model: effective.model, effort: effective.effort })
+  }, { model: effective.model, effort: effective.effort, mcpServers })
     .then((session) => {
       const { options } = session
       setAgentOptions(baseAgent.id, { ...options, at: new Date().toISOString() })

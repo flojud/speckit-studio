@@ -47,8 +47,8 @@ const MODES: [BoardMode, string][] = [
   ['all', 'All']
 ]
 
-/** Command that produces a phase – dropping a card on that column runs it. */
-const DROP_COMMAND: Partial<Record<Phase, string>> = { specified: 'specify', clarified: 'clarify', planned: 'plan', tasked: 'tasks', implementing: 'implement', done: 'implement' }
+/** Command that produces a phase – dropping a card on that column runs it. Done merges the spec branch instead. */
+const DROP_COMMAND: Partial<Record<Phase, string>> = { specified: 'specify', clarified: 'clarify', planned: 'plan', tasked: 'tasks', implementing: 'implement', done: 'merge' }
 
 interface BoardProps {
   snap: ProjectSnapshot
@@ -59,6 +59,7 @@ interface BoardProps {
   onNewSpec: () => void
   onNewWorkItem: () => void
   onRun: (specKey: string, command: string) => void
+  onMerge: (specKey: string) => void
 }
 
 export function Board(props: BoardProps): React.JSX.Element {
@@ -72,7 +73,7 @@ export function Board(props: BoardProps): React.JSX.Element {
     setOver(undefined)
     const spec = specs.find((s) => s.key === key)
     const command = DROP_COMMAND[phase]
-    if (spec && command && PHASES.indexOf(phase) > PHASES.indexOf(spec.phase)) props.onRun(key, command)
+    if (spec && command && PHASES.indexOf(phase) > PHASES.indexOf(spec.phase)) (command === 'merge' ? props.onMerge(key) : props.onRun(key, command))
   }
   // Dropping runs Spec Kit commands, so only on the spec phase columns.
   const dropCommand = (id: string): string | undefined => (mode === 'specs' ? DROP_COMMAND[id as Phase] : undefined)

@@ -198,3 +198,13 @@ test('phaseConfigs and globalDefaults CRUD operations and legacy synchronization
   })
 })
 
+
+test('project agent preferences: per project, empty values dropped so they inherit', async () => {
+  const db = await import('../src/main/db.ts')
+  db.openDb(':memory:')
+  assert.deepEqual(db.getProjectAgentPreferences(1), {})
+  db.setProjectAgentPreferences(1, { model: 'opus', effort: '', instructions: '  ' })
+  db.setProjectAgentPreferences(2, { effort: 'high', instructions: 'Use pnpm.' })
+  assert.deepEqual(db.getProjectAgentPreferences(1), { model: 'opus' })
+  assert.deepEqual(db.getProjectAgentPreferences(2), { effort: 'high', instructions: 'Use pnpm.' })
+})

@@ -120,6 +120,8 @@ export interface ProjectSnapshot {
   initialized: boolean
   missing: boolean
   integration?: string
+  /** Studio agent assigned to the project (`studio_agent` in `.specify/integration.json`) */
+  studioAgent?: string
   /** e.g. `/speckit-` (Claude skills) or `/speckit.` (most other agents) */
   commandPrefix: string
   constitution?: Constitution
@@ -230,11 +232,19 @@ export type FindingRule =
   | 'duplicate-name'
   | 'broken-markers'
   | 'section-conflict'
+  | 'mcp-syntax-error'
+  | 'mcp-invalid-name'
+  | 'mcp-missing-command'
+  | 'mcp-missing-url'
+  | 'mcp-duplicate-name'
+  | 'mcp-missing-binary'
 
 export interface Finding {
   file: string
   /** 1-based */
   line?: number
+  /** MCP findings: the server in `.mcp.json` they belong to */
+  server?: string
   rule: FindingRule
   severity: 'warning' | 'error'
   reason: string
@@ -255,6 +265,8 @@ export interface AgentConfigState {
   findings: Finding[]
   sync: SectionDiff[]
   isRepo: boolean
+  /** Project MCP servers from `.mcp.json` */
+  mcp: McpState
 }
 
 export interface FileChange {
@@ -298,6 +310,47 @@ export interface GlobalAgentDefaults {
   model?: string
   /** Default reasoning effort applied across all phases unless overridden */
   effort?: EffortLevel | ''
+}
+
+/** Studio-only run preferences of one project (settings key `projectAgentPreferences:<projectId>`). */
+export interface ProjectAgentPreferences {
+  model?: string
+  effort?: EffortLevel
+  /** Appended to every run prompt of the project */
+  instructions?: string
+}
+
+export interface ProjectAgentInfo {
+  /** Effective agent: the project's assignment, else the agent the renderer passed */
+  agentId: string
+  /** No `studio_agent` in `.specify/integration.json` */
+  inherited: boolean
+  name: string
+  command: string
+  status: 'ready' | 'missing-binary' | 'unknown-agent'
+  preferences: ProjectAgentPreferences
+}
+
+export type McpTransportType = 'stdio' | 'sse' | 'http'
+
+/** One entry of `.mcp.json` `mcpServers`; `name` is its key. */
+export interface McpServerConfig {
+  name: string
+  /** Omitted = stdio */
+  type?: McpTransportType
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+  disabled?: boolean
+}
+
+export interface McpState {
+  servers: McpServerConfig[]
+  exists: boolean
+  /** JSON syntax error */
+  error?: string
 }
 
 export interface EffectiveRunConfig {
