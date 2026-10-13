@@ -25,6 +25,7 @@ export function Settings({ onAgentsChanged, onRestartGuide }: { onAgentsChanged:
   const [options, setOptions] = useState<Record<string, AgentOptions | null>>({})
   const [probing, setProbing] = useState<string>()
   const [tools, setTools] = useState<{ id: string; required: boolean; version?: string; hint: string }[]>()
+  const [toolPaths, setToolPaths] = useState<Record<string, string>>({})
 
   const reload = (): void => {
     window.api.listAgents().then(setAgents)
@@ -38,9 +39,16 @@ export function Settings({ onAgentsChanged, onRestartGuide }: { onAgentsChanged:
     window.api.agents.phaseConfigs().then(setPhaseConfigs)
     window.api.agents.globalDefaults().then(setGlobalDefaults)
     window.api.env.tools().then(setTools)
+    window.api.settings.get<Record<string, string>>('toolPaths').then((v) => setToolPaths(v ?? {}))
     window.api.settings.get<boolean>('autoApproveReads').then((v) => setAutoReads(!!v))
     window.api.settings.get<boolean>('dangerouslySkipPermissions').then((v) => setDangerouslySkip(!!v))
   }, [])
+
+  async function recheckTools(): Promise<void> {
+    setTools(undefined)
+    await window.api.settings.set('toolPaths', toolPaths)
+    setTools(await window.api.env.tools(true))
+  }
 
   async function probe(id: string): Promise<void> {
     setProbing(id)
@@ -123,15 +131,28 @@ export function Settings({ onAgentsChanged, onRestartGuide }: { onAgentsChanged:
         ) : (
           <ul className="rounded-lg border border-line divide-y divide-line">
             {tools.map((t) => (
-              <li key={t.id} className="flex items-center gap-3 px-3 py-2">
-                <span className={t.version ? 'text-[#4cb782]' : t.required ? 'text-[#eb5757]' : 'text-dim'}>{t.version ? '●' : '○'}</span>
-                <span className="w-20 font-medium">{t.id}</span>
-                <span className="w-24 text-dim">{t.version ?? (t.required ? 'missing (required)' : 'not found')}</span>
-                {!t.version && <code className="flex-1 truncate text-[12px] text-dim select-text">{t.hint}</code>}
+              <li key={t.id} className="px-3 py-2 space-y-1.5">
+                <div className="flex items-center gap-3">
+                  <span className={t.version ? 'text-[#4cb782]' : t.required ? 'text-[#eb5757]' : 'text-dim'}>{t.version ? '●' : '○'}</span>
+                  <span className="w-20 font-medium">{t.id}</span>
+                  <span className="w-24 text-dim">{t.version ?? (t.required ? 'missing (required)' : 'not found')}</span>
+                  {!t.version && <code className="flex-1 truncate text-[12px] text-dim select-text">{t.hint}</code>}
+                </div>
+                {(!t.version || toolPaths[t.id]) && (
+                  <input
+                    className={`${input} ml-[5.5rem] w-[calc(100%-5.5rem)] font-mono text-[12px]`}
+                    placeholder={`Installed but not found? Full path, e.g. output of \`which ${t.id}\``}
+                    value={toolPaths[t.id] ?? ''}
+                    onChange={(e) => setToolPaths((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                  />
+                )}
               </li>
             ))}
           </ul>
         )}
+        <button className="rounded-md border border-line px-2.5 py-1 text-dim hover:text-fg disabled:opacity-40" disabled={!tools} onClick={recheckTools}>
+          Check again
+        </button>
       </section>
 
       <section className="space-y-3">
