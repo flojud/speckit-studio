@@ -26,7 +26,7 @@ import { applyGit, createPr, gitInfo, mergeSpec, removeWorktree, specRefNames, W
 import { deleteMcpServer, saveMcpServer, toggleMcpServer } from './mcp'
 import { installAgent } from './registry'
 import { probeAgent } from './runner'
-import { checkTools, onPath, specifyInit } from './env'
+import { addToolPaths, adoptShellPath, checkTools, newerRelease, onPath, specifyInit } from './env'
 import { answerPermission, cancelProjectRuns, cancelRun, finishRun, hasActiveRun, replyRun, startRun, WORK_ITEM_COMMAND, type StartOptions } from './runs'
 import {
   backlinks,
@@ -286,11 +286,19 @@ export function registerIpc(): void {
   })
   ipcMain.handle('settings:setGlobalDefaults', (_e, defaults: GlobalAgentDefaults) => db.setGlobalDefaults(defaults))
   ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.handle('app:newerRelease', () => newerRelease(app.getVersion()))
   ipcMain.handle('settings:get', (_e, key: string) => db.getSetting(key, null))
   ipcMain.handle('settings:set', (_e, key: string, value: unknown) => db.setSetting(key, value))
 
   // Environment & onboarding
-  ipcMain.handle('env:tools', () => checkTools())
+  // rescan: read the login shell's PATH again and put the folders of configured tool paths first.
+  ipcMain.handle('env:tools', async (_e, rescan?: boolean) => {
+    if (rescan) {
+      await adoptShellPath()
+      addToolPaths(db.getSetting('toolPaths', {}))
+    }
+    return checkTools()
+  })
   ipcMain.handle('specify:init', async (_e, projectId: number, integration: string) => {
     const result = await specifyInit(projectPath(projectId), integration)
     notifyChanged(projectId)

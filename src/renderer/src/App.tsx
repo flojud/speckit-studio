@@ -56,6 +56,7 @@ export default function App(): React.JSX.Element {
   // undefined until loaded; null = never finished or skipped the guide
   const [onboarding, setOnboarding] = useState<OnboardingPreferences | null>()
   const [appVersion, setAppVersion] = useState('')
+  const [update, setUpdate] = useState<{ version: string; url: string } | null>(null)
   const [guide, setGuide] = useState<OnboardingGuideMode>()
 
   useEffect(() => {
@@ -96,6 +97,7 @@ export default function App(): React.JSX.Element {
       setAppVersion(version)
       if (shouldAutoOpenOnboarding({ prefs, projectCount: ps.length })) setGuide('all')
     })
+    window.api.newerRelease().then(setUpdate)
   }, [])
 
   const load = useCallback((id: number) => window.api.snapshot(id).then(setSnap), [])
@@ -322,6 +324,11 @@ export default function App(): React.JSX.Element {
           <button onClick={() => setGuide(onboarding ? 'whats-new' : 'all')} className="mx-2 mb-1 rounded-md px-2 py-1.5 text-left text-accent hover:bg-raised">
             ✨ {onboarding ? `What's New (${unread.length})` : 'Take the tour'}
           </button>
+        )}
+        {update && (
+          <a href={update.url} target="_blank" rel="noreferrer" className="mx-2 mb-1 rounded-md px-2 py-1.5 text-accent hover:bg-raised">
+            ⬇ Version {update.version} available
+          </a>
         )}
         {appVersion && <div className="px-4 pb-0.5 text-[11px] font-mono text-dim/60 select-text">v{appVersion}</div>}
         <button onClick={() => setView({ kind: 'settings' })} className={`mx-2 rounded-md px-2 py-1.5 text-left hover:bg-raised hover:text-fg ${view.kind === 'settings' ? 'bg-raised text-fg' : 'text-dim'}`}>

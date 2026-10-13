@@ -93,12 +93,13 @@ const api = {
     setGlobalDefaults: (defaults: GlobalAgentDefaults): Promise<void> => ipcRenderer.invoke('settings:setGlobalDefaults', defaults)
   },
   appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  newerRelease: (): Promise<{ version: string; url: string } | null> => ipcRenderer.invoke('app:newerRelease'),
   settings: {
     get: <T>(key: string): Promise<T | null> => ipcRenderer.invoke('settings:get', key),
     set: (key: string, value: unknown): Promise<void> => ipcRenderer.invoke('settings:set', key, value)
   },
   env: {
-    tools: (): Promise<{ id: string; required: boolean; version?: string; hint: string }[]> => ipcRenderer.invoke('env:tools'),
+    tools: (rescan?: boolean): Promise<{ id: string; required: boolean; version?: string; hint: string }[]> => ipcRenderer.invoke('env:tools', rescan),
     specifyInit: (projectId: number, integration: string): Promise<{ ok: boolean; output: string }> =>
       ipcRenderer.invoke('specify:init', projectId, integration)
   },
