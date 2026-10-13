@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { WORK_ITEM_CATEGORIES, WORK_ITEM_STATUSES, type Artifact, type Constitution, type Phase, type ProjectSnapshot, type Spec, type Task, type WorkItem } from '../shared/types.ts'
 import { resolvePage, slugify, wikiLinks, type WikiPage } from '../shared/wiki.ts'
@@ -40,14 +40,29 @@ export function readProject(path: string): ProjectSnapshot {
   }
 }
 
-function readIntegration(path: string): { integration?: string; commandPrefix: string } {
+const INTEGRATION = '.specify/integration.json'
+
+export function readIntegration(path: string): { integration?: string; studioAgent?: string; commandPrefix: string } {
   try {
-    const cfg = JSON.parse(readFileSync(join(path, '.specify/integration.json'), 'utf8'))
+    const cfg = JSON.parse(readFileSync(join(path, INTEGRATION), 'utf8'))
     const sep = cfg.integration_settings?.[cfg.integration]?.invoke_separator ?? '.'
-    return { integration: cfg.integration, commandPrefix: `/speckit${sep}` }
+    return { integration: cfg.integration, ...(cfg.studio_agent ? { studioAgent: cfg.studio_agent } : {}), commandPrefix: `/speckit${sep}` }
   } catch {
     return { commandPrefix: '/speckit.' }
   }
+}
+
+/**
+ * Assigns a studio agent to the project (`null` = inherit), keeping every Spec Kit key.
+ * Its own key, not `integration`: that one is Spec Kit's and drives the command names.
+ */
+export function writeStudioAgent(path: string, agentId: string | null): void {
+  const file = join(path, INTEGRATION)
+  if (!existsSync(join(path, '.specify'))) throw new Error('Not a Spec Kit project (no .specify folder)')
+  const cfg = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {}
+  if (agentId) cfg.studio_agent = agentId
+  else delete cfg.studio_agent
+  writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`)
 }
 
 export function parseConstitution(md: string | undefined): Constitution | undefined {

@@ -1,7 +1,7 @@
 import { watch, type FSWatcher } from 'node:fs'
 
 const RELEVANT =
-  /^(specs|work-items|\.specify|docs)([/\\\\]|$)|^\.studio[/\\\\]worktrees[/\\\\][^/\\\\]+[/\\\\]specs[/\\\\]|(^|[/\\\\])(CLAUDE|GEMINI|AGENTS)\.md$|^\.(claude|gemini)[/\\\\]|^package\.json$/
+  /^(specs|work-items|\.specify|docs)([/\\\\]|$)|^\.studio[/\\\\]worktrees[/\\\\][^/\\\\]+[/\\\\]specs[/\\\\]|(^|[/\\\\])(CLAUDE|GEMINI|AGENTS)\.md$|^\.(claude|gemini)[/\\\\]|^package\.json$|^\.mcp\.json$/
 
 /** Watches a repo recursively and calls onChange (debounced) when Spec Kit relevant files change. */
 export function watchProject(path: string, onChange: () => void): () => void {

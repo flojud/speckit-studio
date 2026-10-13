@@ -169,3 +169,25 @@ test('work items: sequential keys, listing, missing folder', () => {
   assert.deepEqual(listWorkItems(dir).map((w) => [w.key, w.title, w.status]), [['WI-001-a', 'Just a heading', 'draft'], ['WI-002-b', 'B', 'done']])
   assert.deepEqual(readProject(repo).workItems, [])
 })
+
+test('studio agent: assigned in .specify/integration.json next to Spec Kit keys, which stay untouched', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { readIntegration, writeStudioAgent } = await import('../src/main/speckit.ts')
+  const dir = mkdtempSync(join(tmpdir(), 'studio-agent-'))
+  mkdirSync(join(dir, '.specify'))
+  const spec = { integration: 'claude', integration_settings: { claude: { invoke_separator: '-' } }, installed_integrations: ['claude'] }
+  writeFileSync(join(dir, '.specify/integration.json'), JSON.stringify(spec))
+  assert.deepEqual(readIntegration(dir), { integration: 'claude', commandPrefix: '/speckit-' }) // inherited
+  writeStudioAgent(dir, 'antigravity-acp')
+  assert.deepEqual(readIntegration(dir), { integration: 'claude', studioAgent: 'antigravity-acp', commandPrefix: '/speckit-' })
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, '.specify/integration.json'), 'utf8')), { ...spec, studio_agent: 'antigravity-acp' })
+  assert.equal(readProject(dir).studioAgent, 'antigravity-acp')
+  writeStudioAgent(dir, null)
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, '.specify/integration.json'), 'utf8')), spec)
+  // no integration.json yet: created; not a Spec Kit project: refused
+  const fresh = mkdtempSync(join(tmpdir(), 'studio-agent-'))
+  mkdirSync(join(fresh, '.specify'))
+  writeStudioAgent(fresh, 'fake')
+  assert.equal(readIntegration(fresh).studioAgent, 'fake')
+  assert.throws(() => writeStudioAgent(mkdtempSync(join(tmpdir(), 'plain-')), 'fake'), /Not a Spec Kit project/)
+})

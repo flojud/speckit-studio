@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
-import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
+import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION, type McpServer } from '@agentclientprotocol/sdk'
 import { pickConfig } from '../shared/runs.ts'
 import type { AcpUpdate, AgentConfig, AgentOptions, PermissionOption } from '../shared/types'
 
@@ -27,13 +27,14 @@ export interface AgentSession {
 /**
  * Spawns an ACP agent over stdio, initializes it and opens one session in `cwd`. No Electron imports, so it is testable.
  * `want.model` / `want.effort` are set via ACP `session/set_config_option` when the agent offers them; otherwise a notice says so.
+ * `want.mcpServers` go into `session/new`; http/sse servers only if the agent declares support for them.
  */
 export async function startAgent(
   cfg: AgentConfig,
   cwd: string,
   env: Record<string, string>,
   hooks: AgentHooks,
-  want: { model?: string; effort?: string } = {}
+  want: { model?: string; effort?: string; mcpServers?: McpServer[] } = {}
 ): Promise<AgentSession> {
   const child = spawn(cfg.command, cfg.args, { cwd, env: { ...process.env, ...cfg.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'] })
   let stderr = ''
@@ -68,7 +69,13 @@ export async function startAgent(
   }
   try {
     const init = await Promise.race([conn.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} }), died])
-    const newSession = (): ReturnType<typeof conn.newSession> => Promise.race([conn.newSession({ cwd, mcpServers: [] }), died])
+    const caps = init.agentCapabilities?.mcpCapabilities
+    const mcpServers = (want.mcpServers ?? []).filter((s) => {
+      if (!('type' in s) || (s.type !== 'http' && s.type !== 'sse') || caps?.[s.type]) return true
+      hooks.onNotice?.(`MCP server "${s.name}" skipped: ${cfg.name} does not support ${s.type} MCP servers.`)
+      return false
+    })
+    const newSession = (): ReturnType<typeof conn.newSession> => Promise.race([conn.newSession({ cwd, mcpServers }), died])
     let session: Awaited<ReturnType<typeof conn.newSession>>
     try {
       session = await newSession()

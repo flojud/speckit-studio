@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, join, normalize, resolve } from 'node:pa
 import type { AgentConfigState, ConfigAgent, ConfigItem, ConfigKind, FileChange, Finding, FindingRule, SectionDiff } from '../shared/types.ts'
 import { slugify } from '../shared/wiki.ts'
 import { git, tryGit } from './git.ts'
+import { MCP_FILE, readMcpConfig, validateMcpConfig } from './mcp.ts'
 
 /** Where each agent reads its instructions. Context files are found in any folder, skills and subagents at the root only. */
 export const LOCATIONS: Record<ConfigAgent, Partial<Record<ConfigKind, string>>> = {
@@ -324,8 +325,8 @@ export async function configState(root: string): Promise<AgentConfigState> {
   const markers = readMarkers(root)
   const items = listConfig(root, files, markers)
   const sync = syncDiffs(root, items, markers)
-  const findings = healthCheck(items, { root: resolve(root), basenames: new Set(files.map((f) => basename(f))), markers, sync })
-  return { items, findings, sync, isRepo }
+  const findings = [...healthCheck(items, { root: resolve(root), basenames: new Set(files.map((f) => basename(f))), markers, sync }), ...validateMcpConfig(root)]
+  return { items, findings, sync, isRepo, mcp: readMcpConfig(root) }
 }
 
 // --- writes (explicit user actions only)
@@ -352,12 +353,33 @@ function assertWritable(root: string, rel: string): string {
   return join(root, rel)
 }
 
-const writableItem = async (root: string, path: string): Promise<ConfigItem | undefined> =>
-  listConfig(root, (await projectFiles(root)).files).find((i) => i.path === path && !i.readOnly)
+const writableItems = async (root: string): Promise<ConfigItem[]> => listConfig(root, (await projectFiles(root)).files).filter((i) => !i.readOnly)
+const writableItem = async (root: string, path: string): Promise<ConfigItem | undefined> => (await writableItems(root)).find((i) => i.path === path)
 
-/** Saves a listed file. Turning valid Spec Kit markers into broken ones needs `force` (the renderer confirms first). */
+/** Folder of a skill, e.g. `.claude/skills/review`. */
+export const skillDir = (skill: Pick<ConfigItem, 'path'>): string => dirname(skill.path)
+
+/** True when `path` is an auxiliary file (anything but SKILL.md) of a writable skill. */
+const isAuxFile = (items: ConfigItem[], path: string): boolean =>
+  items.some((i) => i.kind === 'skill' && i.extraFiles?.some((f) => `${skillDir(i)}/${f}` === path))
+
+/**
+ * Saves a listed file, an auxiliary file of a skill, or `.mcp.json` (raw edit; must stay valid JSON).
+ * Turning valid Spec Kit markers into broken ones needs `force` (the renderer confirms first).
+ */
 export async function writeConfig(root: string, path: string, content: string, force = false): Promise<void> {
-  if (!(await writableItem(root, path))) throw new Error(`Not writable: ${path}`)
+  const items = await writableItems(root)
+  if (!items.some((i) => i.path === path)) {
+    if (path === MCP_FILE) {
+      try {
+        JSON.parse(content)
+      } catch (e) {
+        throw new Error(`Invalid JSON: ${(e as Error).message}`)
+      }
+    } else if (!isAuxFile(items, path)) throw new Error(`Not writable: ${path}`)
+    writeFileSync(assertWritable(root, path), content)
+    return
+  }
   const file = join(root, path)
   const m = readMarkers(root)
   const problem = markerProblem(content, m)
@@ -372,7 +394,25 @@ export async function deleteConfig(root: string, path: string): Promise<void> {
   rmSync(join(root, item.kind === 'skill' ? dirname(path) : path), { recursive: true })
 }
 
-const yamlValue = (s: string): string => (/^[\s"'[\]{}>|*&!%@`#,?-]|: | #/.test(s) ? JSON.stringify(s) : s)
+/** Creates `rel` (e.g. `helper.sh`, `templates/a.md`) inside a writable skill folder and returns its repo path. Never overwrites. */
+export async function createSkillFile(root: string, dir: string, rel: string, content = ''): Promise<string> {
+  if (!(await writableItems(root)).some((i) => i.kind === 'skill' && skillDir(i) === dir)) throw new Error(`No writable skill in ${dir}`)
+  const name = normalize(rel.trim()).replace(/\\/g, '/')
+  if (!rel.trim() || isAbsolute(name) || name.split('/').includes('..') || name === 'SKILL.md' || name === '.') throw new Error(`Invalid file name: ${rel}`)
+  const path = `${dir}/${name}`
+  const file = assertWritable(root, path)
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, content, { flag: 'wx' }) // EEXIST surfaces as an error
+  return path
+}
+
+/** Removes one auxiliary file of a skill; SKILL.md only goes with the whole skill (deleteConfig). */
+export async function deleteSkillFile(root: string, path: string): Promise<void> {
+  if (!isAuxFile(await writableItems(root), path)) throw new Error(`Not an auxiliary skill file: ${path}`)
+  rmSync(assertWritable(root, path))
+}
+
+const yamlValue =(s: string): string => (/^[\s"'[\]{}>|*&!%@`#,?-]|: | #/.test(s) ? JSON.stringify(s) : s)
 
 /** Writes a starter file in the agent's standard location and returns its path. Never overwrites. */
 export function createConfig(root: string, kind: ConfigKind, agent: ConfigAgent, name: string, description: string): string {

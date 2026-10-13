@@ -9,7 +9,9 @@ import {
   baselineFor,
   configState,
   createConfig,
+  createSkillFile,
   deleteConfig,
+  deleteSkillFile,
   fileChanges,
   frontmatter,
   lineDiff,
@@ -192,6 +194,48 @@ test('deleteConfig: the whole skill folder, a subagent file, never a context fil
   assert.equal(existsSync(join(dir, '.claude/agents/helper.md')), false)
   await assert.rejects(deleteConfig(dir, 'CLAUDE.md'), /Only skills and subagents can be deleted/)
   assert.ok(existsSync(join(dir, 'CLAUDE.md')))
+})
+
+test('auxiliary skill files: create, list, edit, delete; traversal, SKILL.md and read-only skills refused', async () => {
+  const dir = copyFixture()
+  const skill = '.claude/skills/review'
+  assert.equal(await createSkillFile(dir, skill, 'templates/story.md', '# Story\n'), `${skill}/templates/story.md`)
+  await assert.rejects(createSkillFile(dir, skill, 'templates/story.md', 'x'), /EEXIST/)
+  for (const bad of ['../escape.sh', '../../CLAUDE.md', 'SKILL.md', '/etc/x', ' ', 'a/../../b'])
+    await assert.rejects(createSkillFile(dir, skill, bad, 'x'), /Invalid file name/)
+  await assert.rejects(createSkillFile(dir, '.claude/skills/nope', 'a.sh', 'x'), /No writable skill/)
+  await assert.rejects(createSkillFile(dir, 'src', 'a.sh', 'x'), /No writable skill/)
+  const { files } = await projectFiles(dir)
+  assert.deepEqual(listConfig(dir, files).find((i) => i.path === `${skill}/SKILL.md`)!.extraFiles, ['scripts/run.sh', 'templates/story.md'])
+
+  await writeConfig(dir, `${skill}/scripts/run.sh`, '#!/bin/sh\necho hi\n')
+  assert.equal(read(dir, `${skill}/scripts/run.sh`), '#!/bin/sh\necho hi\n')
+  await assert.rejects(writeConfig(dir, `${skill}/scripts/new.sh`, 'x'), /Not writable/) // only existing files; create goes through createSkillFile
+
+  await deleteSkillFile(dir, `${skill}/templates/story.md`)
+  assert.equal(existsSync(join(dir, skill, 'templates/story.md')), false)
+  assert.ok(existsSync(join(dir, skill, 'SKILL.md')))
+  await assert.rejects(deleteSkillFile(dir, `${skill}/SKILL.md`), /Not an auxiliary/)
+  await assert.rejects(deleteSkillFile(dir, 'CLAUDE.md'), /Not an auxiliary/)
+
+  // a skill symlinked from outside stays untouched
+  const outside = mkdtempSync(join(tmpdir(), 'outside-'))
+  writeFileSync(join(outside, 'SKILL.md'), '---\nname: linked\ndescription: Lives somewhere else entirely.\n---\n')
+  writeFileSync(join(outside, 'x.sh'), 'x')
+  symlinkSync(outside, join(dir, '.claude/skills/linked'))
+  await assert.rejects(createSkillFile(dir, '.claude/skills/linked', 'y.sh', 'y'), /No writable skill/)
+  await assert.rejects(writeConfig(dir, '.claude/skills/linked/x.sh', 'changed'), /Not writable/)
+  await assert.rejects(deleteSkillFile(dir, '.claude/skills/linked/x.sh'), /Not an auxiliary/)
+  assert.equal(readFileSync(join(outside, 'x.sh'), 'utf8'), 'x')
+})
+
+test('.mcp.json: raw edits must be valid JSON; MCP findings and servers are part of configState', async () => {
+  const dir = copyFixture()
+  await assert.rejects(writeConfig(dir, '.mcp.json', '{ broken'), /Invalid JSON/)
+  await writeConfig(dir, '.mcp.json', '{ "mcpServers": { "x": { "args": [] } } }')
+  const s = await configState(dir)
+  assert.deepEqual(s.mcp, { servers: [{ name: 'x', args: [] }], exists: true })
+  assert.deepEqual(s.findings.filter((f) => f.file === '.mcp.json').map((f) => `${f.server} ${f.rule}`), ['x mcp-missing-command'])
 })
 
 // --- health (US3)

@@ -7,8 +7,11 @@ import type {
   ConfigKind,
   FileChange,
   GlobalAgentDefaults,
+  McpServerConfig,
   PhaseConfig,
   Project,
+  ProjectAgentInfo,
+  ProjectAgentPreferences,
   ProjectSnapshot,
   Run,
   RunEvent,
@@ -26,7 +29,20 @@ const api = {
     share: (projectId: number, dir: string): Promise<{ moved: string[] }> => ipcRenderer.invoke('agentConfig:share', projectId, dir),
     optimize: (projectId: number, agentId: string, path: string | null, instructions: string): Promise<number> =>
       ipcRenderer.invoke('agentConfig:optimize', projectId, agentId, path, instructions),
-    changes: (runId: number): Promise<FileChange[]> => ipcRenderer.invoke('agentConfig:changes', runId)
+    changes: (runId: number): Promise<FileChange[]> => ipcRenderer.invoke('agentConfig:changes', runId),
+    createSkillFile: (projectId: number, skillDir: string, rel: string, content = ''): Promise<string> =>
+      ipcRenderer.invoke('skills:createFile', projectId, skillDir, rel, content),
+    deleteSkillFile: (projectId: number, path: string): Promise<void> => ipcRenderer.invoke('skills:deleteFile', projectId, path)
+  },
+  projectAgent: {
+    get: (projectId: number, fallbackAgentId: string): Promise<ProjectAgentInfo> => ipcRenderer.invoke('project:getAgent', projectId, fallbackAgentId),
+    set: (projectId: number, agentId: string | null, preferences: ProjectAgentPreferences): Promise<void> =>
+      ipcRenderer.invoke('project:setAgent', projectId, agentId, preferences)
+  },
+  mcp: {
+    save: (projectId: number, server: McpServerConfig, oldName?: string): Promise<void> => ipcRenderer.invoke('mcp:saveServer', projectId, server, oldName),
+    toggle: (projectId: number, name: string, enabled: boolean): Promise<void> => ipcRenderer.invoke('mcp:toggleServer', projectId, name, enabled),
+    remove: (projectId: number, name: string): Promise<void> => ipcRenderer.invoke('mcp:deleteServer', projectId, name)
   },
   listProjects: (): Promise<Project[]> => ipcRenderer.invoke('projects:list'),
   addProject: (): Promise<Project | null> => ipcRenderer.invoke('projects:add'),

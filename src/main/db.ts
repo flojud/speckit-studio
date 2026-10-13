@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { basename } from 'node:path'
-import type { AgentConfig, AgentOptions, AnalysisSummary, GlobalAgentDefaults, PhaseConfig, PmData, Project, Run, RunEvent, RunStatus } from '../shared/types'
+import type { AgentConfig, AgentOptions, AnalysisSummary, GlobalAgentDefaults, PhaseConfig, PmData, Project, ProjectAgentPreferences, Run, RunEvent, RunStatus } from '../shared/types'
 
 // Append-only: index + 1 = schema version stored in PRAGMA user_version.
 const MIGRATIONS = [
@@ -123,6 +123,14 @@ export const getGlobalDefaults = (): GlobalAgentDefaults =>
 export const setGlobalDefaults = (defaults: GlobalAgentDefaults): void => {
   setSetting('globalAgentDefaults', defaults)
 }
+
+/** Model, effort and instructions for all runs of one project (Spec Kit has no such concept). */
+export const getProjectAgentPreferences = (projectId: number): ProjectAgentPreferences =>
+  getSetting<ProjectAgentPreferences>(`projectAgentPreferences:${projectId}`, {})
+
+/** Empty values are dropped, so they inherit again. */
+export const setProjectAgentPreferences = (projectId: number, prefs: ProjectAgentPreferences): void =>
+  setSetting(`projectAgentPreferences:${projectId}`, Object.fromEntries(Object.entries(prefs).filter(([, v]) => typeof v === 'string' && v.trim())))
 
 /** Default agent per Spec Kit command, e.g. `{ specify: 'antigravity-acp', implement: 'claude' }`. */
 export const getPhaseAgents = (): Record<string, string> => {

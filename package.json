@@ -1,6 +1,6 @@
 {
   "name": "speckit-studio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local Spec-Driven Development cockpit for GitHub Spec Kit, driving coding agents via ACP",
   "main": "./out/main/index.js",
   "license": "MIT",

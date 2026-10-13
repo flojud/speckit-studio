@@ -6,15 +6,22 @@ import type {
   ConfigItem,
   ConfigKind,
   Finding,
+  McpServerConfig,
   SectionDiff
 } from '../../../shared/types'
 import { Markdown } from '../components/Markdown'
 import { MarkdownEditor } from '../components/MarkdownEditor'
+import { McpServerEditor, McpServerRow } from '../components/McpServerConfig'
+import { ProjectAgentBanner } from '../components/ProjectAgentBanner'
 import { useFile } from '../useFile'
 
 interface Props {
   projectId: number
   rev: number
+  /** Header agent selection, used when the project has no agent of its own */
+  agentId: string
+  /** Agent assigned to the project; runs always use it */
+  projectAgentId?: string
   onOpenRun?: (runId: number) => void
   onOpenSettings?: () => void
 }
@@ -59,7 +66,29 @@ const AGENT_LABEL: Record<ConfigAgent, string> = {
   shared: 'Shared'
 }
 
-export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props): React.JSX.Element {
+const MCP_FILE = '.mcp.json'
+/** Selection key of an MCP server; `mcp:` alone = new server. */
+const MCP_KEY = 'mcp:'
+const skillDir = (skill: ConfigItem): string => skill.path.replace(/\/SKILL\.md$/, '')
+
+/** A listed item, or a file shown like one: an auxiliary skill file (`aux`) or the raw `.mcp.json` (`raw`). */
+type Selected = ConfigItem & { aux?: boolean; raw?: boolean }
+
+function resolveSelected(st: AgentConfigState, path: string | null): Selected | undefined {
+  if (!path) return undefined
+  const item = st.items.find((i) => i.path === path)
+  if (item) return item
+  if (path === MCP_FILE)
+    return st.mcp.exists ? { path, kind: 'context', agent: 'shared', name: path, size: 0, mtime: 0, readOnly: false, raw: true } : undefined
+  const skill = st.items.find((i) => i.kind === 'skill' && i.extraFiles?.some((f) => `${skillDir(i)}/${f}` === path))
+  return skill && { ...skill, path, name: path.slice(skillDir(skill).length + 1), extraFiles: undefined, aux: true }
+}
+
+/** Whether a selection key still points at something after a reload. */
+const resolvable = (st: AgentConfigState, key: string): boolean =>
+  key.startsWith(MCP_KEY) ? key === MCP_KEY || st.mcp.servers.some((s) => `${MCP_KEY}${s.name}` === key) : !!resolveSelected(st, key)
+
+export function AgentConfig({ projectId, rev, agentId, projectAgentId, onOpenRun, onOpenSettings }: Props): React.JSX.Element {
   const [state, setState] = useState<AgentConfigState | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
@@ -88,16 +117,15 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
     error?: string
   }>({ open: false, target: null, agentId: '', instructions: '' })
 
+  const [fileDialog, setFileDialog] = useState<{ skillDir: string; name: string; content: string; error?: string } | null>(null)
+
   // Load state and agents
   useEffect(() => {
     let alive = true
     window.api.agentConfig.list(projectId).then((st) => {
       if (alive) {
         setState(st)
-        setSelectedPath((prev) => {
-          if (prev && st.items.some((i) => i.path === prev)) return prev
-          return st.items[0]?.path ?? null
-        })
+        setSelectedPath((prev) => (prev && resolvable(st, prev) ? prev : (st.items[0]?.path ?? null)))
       }
     })
     window.api.listAgents().then((as) => alive && setAgents(as))
@@ -117,10 +145,11 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [])
 
-  const selectedItem = useMemo(
-    () => state?.items.find((i) => i.path === selectedPath),
-    [state?.items, selectedPath]
-  )
+  const selectedItem = useMemo(() => (state ? resolveSelected(state, selectedPath) : undefined), [state, selectedPath])
+  const synthetic = !!(selectedItem?.aux || selectedItem?.raw)
+  const isMarkdown = !!selectedItem?.path.endsWith('.md')
+  const mcpName = selectedPath?.startsWith(MCP_KEY) ? selectedPath.slice(MCP_KEY.length) : undefined
+  const selectedServer = mcpName ? (state?.mcp.servers.find((s) => s.name === mcpName) ?? null) : null
 
   const content = useFile(projectId, selectedItem?.path, rev)
 
@@ -174,7 +203,8 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
     }
   }
 
-  const handleDelete = async (item: ConfigItem): Promise<void> => {
+  const handleDelete = async (item: Selected): Promise<void> => {
+    if (item.aux) return deleteAuxFile(item.path)
     if (item.kind === 'context') return
     const extras =
       item.extraFiles && item.extraFiles.length > 0
@@ -195,6 +225,50 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
     }
   }
 
+  const deleteAuxFile = async (path: string): Promise<void> => {
+    if (!window.confirm(`Delete ${path}? SKILL.md and the other files of the skill stay.`)) return
+    try {
+      await window.api.agentConfig.deleteSkillFile(projectId, path)
+      if (selectedPath === path) setSelectedPath(null)
+    } catch (e) {
+      setError(cleanError(e))
+    }
+  }
+
+  const handleCreateFile = async (): Promise<void> => {
+    if (!fileDialog) return
+    try {
+      const path = await window.api.agentConfig.createSkillFile(projectId, fileDialog.skillDir, fileDialog.name, fileDialog.content)
+      setFileDialog(null)
+      setExpandedSkills((prev) => new Set(prev).add(`${fileDialog.skillDir}/SKILL.md`))
+      setSelectedPath(path)
+      setEditing(false)
+      setIsDirty(false)
+    } catch (e) {
+      setFileDialog((d) => d && { ...d, error: cleanError(e) })
+    }
+  }
+
+  const saveServer = async (server: McpServerConfig, oldName?: string): Promise<void> => {
+    await window.api.mcp.save(projectId, server, oldName)
+    setIsDirty(false)
+    setSelectedPath(`${MCP_KEY}${server.name}`)
+  }
+
+  const deleteServer = async (name: string): Promise<void> => {
+    if (!window.confirm(`Remove MCP server "${name}" from .mcp.json?`)) return
+    try {
+      await window.api.mcp.remove(projectId, name)
+      setIsDirty(false)
+      setSelectedPath(null)
+    } catch (e) {
+      setError(cleanError(e))
+    }
+  }
+
+  const toggleServer = (name: string, enabled: boolean): void =>
+    void window.api.mcp.toggle(projectId, name, enabled).catch((e) => setError(cleanError(e)))
+
   const handleShare = async (diff: SectionDiff): Promise<void> => {
     const msg = `Move the following identical sections to AGENTS.md?\n\n${diff.shared.map((s) => `• ${s}`).join('\n')}`
     if (!window.confirm(msg)) return
@@ -210,12 +284,11 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
     // ponytail: name heuristic matches agent id or name with owner; vendor field is upgrade path
     const targetItem = target ? state?.items.find((i) => i.path === target) : undefined
     const owner = targetItem?.agent === 'claude' || targetItem?.agent === 'gemini' ? targetItem.agent : undefined
-    const defaultAgent = localStorage.getItem('agent') ?? 'claude'
     const matched = owner
       ? agents.find((a) => new RegExp(owner, 'i').test(`${a.id} ${a.name}`))?.id
       : undefined
-    const agentId = matched ?? (agents.find((a) => a.id === defaultAgent)?.id ?? agents[0]?.id ?? '')
-    setOptimizeDialog({ open: true, target, agentId, instructions: '' })
+    const pick = projectAgentId ?? matched ?? (agents.find((a) => a.id === agentId)?.id ?? agents[0]?.id ?? '')
+    setOptimizeDialog({ open: true, target, agentId: pick, instructions: '' })
   }
 
   const handleOptimize = async (): Promise<void> => {
@@ -239,6 +312,9 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
   const skillItems = state?.items.filter((i) => i.kind === 'skill') ?? []
   const subagentItems = state?.items.filter((i) => i.kind === 'subagent') ?? []
   const selectedFindings = selectedItem ? findingsByFile.get(selectedItem.path) ?? [] : []
+  const mcp = state?.mcp
+  const mcpFindings = (name: string): Finding[] => state?.findings.filter((f) => f.server === name) ?? []
+  const mcpFileFindings = state?.findings.filter((f) => f.file === MCP_FILE && !f.server) ?? []
 
   return (
     <div className="flex flex-col h-full">
@@ -324,6 +400,8 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
           <button onClick={() => setError(undefined)}>✕</button>
         </div>
       )}
+
+      <ProjectAgentBanner projectId={projectId} rev={rev} agents={agents} fallbackAgentId={agentId} onOpenSettings={onOpenSettings} />
 
       {/* Main split view */}
       <div className="flex-1 min-h-0 flex">
@@ -443,17 +521,48 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
                         selected={selectedPath === item.path}
                         findings={findingsByFile.get(item.path) ?? []}
                         onClick={() => selectItem(item.path)}
-                        hasExtras={!!item.extraFiles?.length}
+                        expandable
+                        extraCount={item.extraFiles?.length ?? 0}
                         isExpanded={expandedSkills.has(item.path)}
                         onToggleExpand={() => toggleSkillExpand(item.path)}
                       />
-                      {expandedSkills.has(item.path) && item.extraFiles && item.extraFiles.length > 0 && (
+                      {expandedSkills.has(item.path) && (
                         <div className="ml-5 pl-2 border-l border-line space-y-0.5 text-[11px] text-dim py-0.5">
-                          {item.extraFiles.map((f) => (
-                            <div key={f} className="truncate select-text py-0.5" title={f}>
-                              📄 {f}
-                            </div>
-                          ))}
+                          {(item.extraFiles ?? []).map((f) => {
+                            const path = `${skillDir(item)}/${f}`
+                            return (
+                              <div
+                                key={f}
+                                onClick={() => selectItem(path)}
+                                className={`group/file flex items-center gap-1 rounded px-1.5 py-0.5 cursor-pointer ${selectedPath === path ? 'bg-raised text-fg' : 'hover:bg-raised/60 hover:text-fg'}`}
+                                title={path}
+                              >
+                                <span className="truncate flex-1 font-mono">{f}</span>
+                                {!item.readOnly && (
+                                  <button
+                                    type="button"
+                                    aria-label={`Delete ${f}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      void deleteAuxFile(path)
+                                    }}
+                                    className="opacity-0 group-hover/file:opacity-100 focus:opacity-100 text-dim hover:text-[#eb5757]"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
+                            )
+                          })}
+                          {!item.readOnly && (
+                            <button
+                              type="button"
+                              onClick={() => setFileDialog({ skillDir: skillDir(item), name: '', content: '' })}
+                              className="px-1.5 py-0.5 text-accent hover:underline"
+                            >
+                              + File
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -491,20 +600,83 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
               </div>
             </div>
           )}
+
+          {/* MCP Servers Section */}
+          {mcp && (
+            <div className="p-2 space-y-1 border-t border-line">
+              <div className="px-2 py-1 flex items-center gap-2 text-[11px] font-semibold text-dim uppercase tracking-wider">
+                <span className="flex-1">MCP Servers</span>
+                {mcp.exists && (
+                  <button onClick={() => selectItem(MCP_FILE)} className="normal-case font-normal text-accent hover:underline">
+                    Edit JSON
+                  </button>
+                )}
+                {!mcp.error && (
+                  <button onClick={() => selectItem(MCP_KEY)} className="normal-case font-normal text-accent hover:underline">
+                    + Add
+                  </button>
+                )}
+                <span className="text-[10px] lowercase font-normal">{mcp.servers.length}</span>
+              </div>
+              {mcpFileFindings.map((f, i) => (
+                <button
+                  key={i}
+                  onClick={() => selectItem(MCP_FILE)}
+                  className="w-full text-left rounded-md px-2.5 py-1.5 text-[11px] bg-[#eb5757]/10 text-[#eb5757]"
+                  title={f.fix}
+                >
+                  {f.reason}
+                </button>
+              ))}
+              {!mcp.error && mcp.servers.length === 0 && (
+                <div className="px-2 py-1.5 text-[11px] text-dim">
+                  <p>MCP servers give agents extra tools and context (databases, docs search, APIs). They live in .mcp.json and are passed to every agent run.</p>
+                  <button onClick={() => selectItem(MCP_KEY)} className="mt-1 text-accent hover:underline text-[11px]">
+                    + Add MCP server
+                  </button>
+                </div>
+              )}
+              {mcp.servers.map((srv) => (
+                <McpServerRow
+                  key={srv.name}
+                  server={srv}
+                  selected={selectedPath === `${MCP_KEY}${srv.name}`}
+                  findings={mcpFindings(srv.name)}
+                  onClick={() => selectItem(`${MCP_KEY}${srv.name}`)}
+                  onToggle={(enabled) => toggleServer(srv.name, enabled)}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Detail pane */}
         <div className="flex-1 min-w-0 flex flex-col bg-background overflow-hidden">
-          {selectedItem ? (
+          {mcpName !== undefined ? (
+            mcpName && !selectedServer ? null : (
+              <div className="flex-1 overflow-auto p-6">
+                <McpServerEditor
+                  key={selectedPath}
+                  server={selectedServer}
+                  findings={mcpName ? mcpFindings(mcpName) : []}
+                  onSave={saveServer}
+                  onDelete={selectedServer ? () => void deleteServer(selectedServer.name) : undefined}
+                  onDirty={setIsDirty}
+                />
+              </div>
+            )
+          ) : selectedItem ? (
             <div className="flex-1 flex flex-col min-h-0">
               {/* Item Detail Header */}
               <div className="shrink-0 border-b border-line px-6 py-3 bg-panel flex flex-wrap items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-[13px] font-medium text-fg truncate">{selectedItem.path}</span>
-                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-raised border border-line text-dim font-medium">
-                      {AGENT_LABEL[selectedItem.agent]}
-                    </span>
+                    {!selectedItem.raw && (
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-raised border border-line text-dim font-medium">
+                        {AGENT_LABEL[selectedItem.agent]}
+                      </span>
+                    )}
                     {selectedItem.readOnly && (
                       <span className="text-[10px] bg-line px-1.5 py-0.5 rounded text-dim">
                         read-only · outside project
@@ -512,9 +684,17 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
                     )}
                   </div>
                   <div className="text-[11px] text-dim flex items-center gap-2 mt-0.5">
-                    <span>{formatBytes(selectedItem.size)}</span>
-                    <span>·</span>
-                    <span>Modified {formatRelative(selectedItem.mtime)}</span>
+                    {selectedItem.aux ? (
+                      <span>Auxiliary file of skill {state?.items.find((i) => i.path === `${skillDir(selectedItem)}/SKILL.md`)?.name}</span>
+                    ) : selectedItem.raw ? (
+                      <span>Project MCP servers – must stay valid JSON</span>
+                    ) : (
+                      <>
+                        <span>{formatBytes(selectedItem.size)}</span>
+                        <span>·</span>
+                        <span>Modified {formatRelative(selectedItem.mtime)}</span>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -527,12 +707,14 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
                       Edit
                     </button>
                   )}
-                  <button
-                    onClick={() => openOptimize(selectedItem.path)}
-                    className="px-2.5 py-1 rounded border border-line bg-raised hover:bg-dim/20 text-[12px] text-fg"
-                  >
-                    Optimize with agent
-                  </button>
+                  {!synthetic && (
+                    <button
+                      onClick={() => openOptimize(selectedItem.path)}
+                      className="px-2.5 py-1 rounded border border-line bg-raised hover:bg-dim/20 text-[12px] text-fg"
+                    >
+                      Optimize with agent
+                    </button>
+                  )}
                   {!selectedItem.readOnly && selectedItem.kind !== 'context' && (
                     <button
                       onClick={() => handleDelete(selectedItem)}
@@ -598,7 +780,7 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
                   <MarkdownEditor
                     initial={content ?? ''}
                     external={content ?? undefined}
-                    preview={selectedItem.size <= 1_000_000}
+                    preview={isMarkdown && selectedItem.size <= 1_000_000}
                     onDirty={setIsDirty}
                     onSave={async (text) => {
                       try {
@@ -625,7 +807,11 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
                   />
                 ) : (
                   <div className="max-w-4xl">
-                    <Markdown text={content ?? ''} />
+                    {isMarkdown ? (
+                      <Markdown text={content ?? ''} />
+                    ) : (
+                      <pre className="font-mono text-[12px] text-fg whitespace-pre-wrap select-text">{content ?? ''}</pre>
+                    )}
                   </div>
                 )}
               </div>
@@ -765,6 +951,50 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
         </div>
       )}
 
+      {/* New auxiliary skill file */}
+      {fileDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              void handleCreateFile()
+            }}
+            className="w-full max-w-md rounded-lg bg-panel border border-line shadow-2xl p-5 space-y-3"
+          >
+            <h2 className="font-semibold text-fg text-sm">New file in {fileDialog.skillDir}</h2>
+            {fileDialog.error && <div className="text-[#eb5757] text-[12px] bg-[#eb5757]/10 p-2 rounded">{fileDialog.error}</div>}
+            <label className="block">
+              <span className="block text-[11px] font-medium text-dim mb-1">File name (sub-folders allowed)</span>
+              <input
+                autoFocus
+                required
+                value={fileDialog.name}
+                onChange={(e) => setFileDialog((d) => d && { ...d, name: e.target.value })}
+                placeholder="e.g. helper.sh or templates/story.md"
+                className="w-full rounded bg-raised border border-line px-2.5 py-1.5 text-[12px] text-fg outline-none focus:border-accent font-mono"
+              />
+            </label>
+            <label className="block">
+              <span className="block text-[11px] font-medium text-dim mb-1">Content (optional)</span>
+              <textarea
+                rows={5}
+                value={fileDialog.content}
+                onChange={(e) => setFileDialog((d) => d && { ...d, content: e.target.value })}
+                className="w-full resize-y rounded bg-raised border border-line px-2.5 py-1.5 text-[12px] text-fg outline-none focus:border-accent font-mono"
+              />
+            </label>
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" onClick={() => setFileDialog(null)} className="px-3 py-1.5 rounded border border-line text-dim hover:text-fg text-[12px]">
+                Cancel
+              </button>
+              <button type="submit" className="px-3 py-1.5 rounded bg-accent text-white text-[12px] font-medium hover:opacity-90">
+                Create
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* Optimize Modal Dialog */}
       {optimizeDialog.open && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -803,6 +1033,8 @@ export function AgentConfig({ projectId, rev, onOpenRun, onOpenSettings }: Props
                 ) : (
                   <select
                     value={optimizeDialog.agentId}
+                    disabled={!!projectAgentId}
+                    title={projectAgentId ? 'The project agent runs this – change it in the Project agent bar' : undefined}
                     onChange={(e) => setOptimizeDialog((d) => ({ ...d, agentId: e.target.value }))}
                     className="w-full rounded bg-raised border border-line px-2.5 py-1.5 text-[12px] text-fg outline-none focus:border-accent"
                   >
@@ -853,11 +1085,12 @@ function ItemRow(props: {
   selected: boolean
   findings: Finding[]
   onClick: () => void
-  hasExtras?: boolean
+  expandable?: boolean
+  extraCount?: number
   isExpanded?: boolean
   onToggleExpand?: () => void
 }): React.JSX.Element {
-  const { item, selected, findings, onClick, hasExtras, isExpanded, onToggleExpand } = props
+  const { item, selected, findings, onClick, expandable, extraCount = 0, isExpanded, onToggleExpand } = props
   const hasErrors = findings.some((f) => f.severity === 'error')
 
   return (
@@ -867,7 +1100,7 @@ function ItemRow(props: {
         selected ? 'bg-raised text-fg' : 'hover:bg-raised/60 text-dim hover:text-fg'
       }`}
     >
-      {hasExtras && (
+      {expandable && (
         <button
           type="button"
           onClick={(e) => {
@@ -875,7 +1108,8 @@ function ItemRow(props: {
             onToggleExpand?.()
           }}
           className="text-dim hover:text-fg text-[10px] mt-0.5"
-          title="Toggle extra files"
+          title={extraCount ? `${extraCount} more file(s)` : 'Files of this skill'}
+          aria-label="Toggle skill files"
         >
           {isExpanded ? '▼' : '▶'}
         </button>

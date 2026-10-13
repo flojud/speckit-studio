@@ -336,18 +336,28 @@ export default function App(): React.JSX.Element {
               {crumb && <span>/ <span className="text-fg">{crumb}</span></span>}
               <span className="ml-auto flex items-center gap-3 text-[11px]">
                 {snap?.integration && <span>{snap.integration} · {snap.commandPrefix}*</span>}
-                <select
-                  value={agentId}
-                  onChange={(e) => setAgentId(e.target.value)}
-                  className="no-drag bg-raised border border-line rounded px-1.5 py-0.5 text-fg outline-none"
-                  title="Agent for new runs"
-                >
-                  {agents.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
+                {snap?.studioAgent ? (
+                  <button
+                    onClick={() => setView({ kind: 'agentConfig' })}
+                    className="no-drag bg-raised border border-line rounded px-1.5 py-0.5 text-fg hover:border-accent"
+                    title="This project has its own agent – change it in Agent Config"
+                  >
+                    {agents.find((a) => a.id === snap.studioAgent)?.name ?? snap.studioAgent} · project
+                  </button>
+                ) : (
+                  <select
+                    value={agentId}
+                    onChange={(e) => setAgentId(e.target.value)}
+                    className="no-drag bg-raised border border-line rounded px-1.5 py-0.5 text-fg outline-none"
+                    title="Agent for new runs"
+                  >
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </span>
             </>
           )}
@@ -425,6 +435,8 @@ export default function App(): React.JSX.Element {
               <AgentConfigView
                 projectId={project.id}
                 rev={rev}
+                agentId={agentId}
+                projectAgentId={snap?.studioAgent}
                 onOpenRun={async (runId) => {
                   const runs = await window.api.listRuns(project.id)
                   const match = runs.find((r) => r.id === runId)

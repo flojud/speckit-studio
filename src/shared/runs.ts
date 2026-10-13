@@ -1,4 +1,4 @@
-import type { ConfigChoice, EffectiveRunConfig, GlobalAgentDefaults, PermissionOption, PhaseConfig, RunEvent, RunStatus, WorkItem } from './types'
+import type { ConfigChoice, EffectiveRunConfig, GlobalAgentDefaults, PermissionOption, PhaseConfig, ProjectAgentPreferences, RunEvent, RunStatus, WorkItem } from './types'
 
 export type RunItem =
   | { kind: 'message'; role: 'agent' | 'user' | 'thought' | 'notice'; text: string }
@@ -109,6 +109,10 @@ export function autoAnswer(kind: string | undefined, options: PermissionOption[]
 export const runPrompt = (prefix: string, command: string, args: string, specKey: string | null, branch?: string): string =>
   `${prefix}${command}${args.trim() ? ` ${args.trim()}` : ''}${specKey ? `\n\nTarget feature directory: specs/${specKey}` : ''}${branch ? `\nGit branch: ${branch} (already checked out)` : ''}`
 
+/** Appends the project's standing instructions to a run prompt. */
+export const withInstructions = (prompt: string, instructions?: string): string =>
+  instructions?.trim() ? `${prompt}\n\nProject instructions:\n${instructions.trim()}` : prompt
+
 /** Plain prompt (no Spec Kit command) for an agent run on a non-code work item. */
 export const workItemPrompt = (w: Pick<WorkItem, 'file' | 'title' | 'category' | 'status' | 'body'>, request: string): string =>
   `You are working on the following product work item: ${w.file}
@@ -139,19 +143,22 @@ export function pickConfig(
 }
 
 /**
- * Resolves the effective execution configuration for a given phase command
- * following the hierarchy: Phase override -> Global default -> Agent fallback.
+ * Resolves the effective execution configuration for a given phase command.
+ * Agent: phase override -> project agent -> fallback (header selection).
+ * Model and effort: phase override -> project preference -> global default -> agent default.
  */
 export function resolveEffectiveConfig(
   command: string,
   phaseConfigs?: Record<string, PhaseConfig>,
   globalDefaults?: GlobalAgentDefaults,
-  fallbackAgentId?: string
+  fallbackAgentId?: string,
+  project?: { agentId?: string; preferences?: ProjectAgentPreferences }
 ): EffectiveRunConfig {
   const phase = phaseConfigs?.[command]
-  const agentId = phase?.agentId?.trim() || fallbackAgentId
-  const model = phase?.model?.trim() || globalDefaults?.model?.trim() || undefined
-  const effort = phase?.effort?.trim() || globalDefaults?.effort?.trim() || undefined
+  const prefs = project?.preferences
+  const agentId = phase?.agentId?.trim() || project?.agentId?.trim() || fallbackAgentId
+  const model = phase?.model?.trim() || prefs?.model?.trim() || globalDefaults?.model?.trim() || undefined
+  const effort = phase?.effort?.trim() || prefs?.effort?.trim() || globalDefaults?.effort?.trim() || undefined
 
   return {
     agentId,

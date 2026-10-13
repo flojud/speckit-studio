@@ -1,5 +1,14 @@
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { delimiter, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
+
+/** Whether `cmd` can be started: a path (relative to `cwd`) that exists, or a name found on PATH. */
+export function onPath(cmd: string, cwd: string): boolean {
+  if (/[/\\]/.test(cmd)) return existsSync(resolve(cwd, cmd))
+  const exts = process.platform === 'win32' ? ['', '.exe', '.cmd', '.bat'] : ['']
+  return (process.env.PATH ?? '').split(delimiter).some((d) => d && exts.some((x) => existsSync(join(d, cmd + x))))
+}
 
 const exec = promisify(execFile)
 const MARK = '__STUDIO_PATH__'

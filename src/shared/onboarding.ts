@@ -100,6 +100,20 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
       'Agents, permissions and this guide live in Settings'
     ],
     action: { label: 'Open Command Palette', target: 'palette' }
+  },
+  {
+    id: 'project-agent',
+    title: 'Project Agent, Skills & MCP Servers',
+    category: 'AI Agents',
+    icon: 'cpu',
+    version: '0.2.0',
+    summary: 'Agent Config now controls which agent runs a project and what it can use: skills with their files, and MCP servers.',
+    highlights: [
+      'Assign a project agent, model, effort and standing instructions in the Project agent bar',
+      'Expand a skill to edit, add or delete its helper files',
+      'Add, edit and switch MCP servers in .mcp.json – enabled ones are passed to every run',
+      'Health badges flag broken JSON, missing commands and unknown binaries'
+    ]
   }
 ]
 

@@ -4,15 +4,28 @@ import { readFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { applyPm } from '../shared/pm'
 import { workItemPrompt } from '../shared/runs'
-import { WORK_ITEM_CATEGORIES, WORK_ITEM_STATUSES, type AgentConfig, type ConfigAgent, type ConfigKind, type GlobalAgentDefaults, type PhaseConfig, type WorkItem } from '../shared/types'
+import {
+  WORK_ITEM_CATEGORIES,
+  WORK_ITEM_STATUSES,
+  type AgentConfig,
+  type ConfigAgent,
+  type ConfigKind,
+  type GlobalAgentDefaults,
+  type McpServerConfig,
+  type PhaseConfig,
+  type ProjectAgentInfo,
+  type ProjectAgentPreferences,
+  type WorkItem
+} from '../shared/types'
 import { slugify } from '../shared/wiki'
 import * as db from './db'
 import { addProject, getAnalysisMarkdown, getProject, getRun, latestAnalyses, listAgents, listProjects, listRunEvents, listRuns, removeProject } from './db'
-import { baselineFor, configState, createConfig, deleteConfig, fileChanges, optimizePrompt, readMarkers, shareConfig, writeConfig } from './agentconfig'
+import { baselineFor, configState, createConfig, createSkillFile, deleteConfig, deleteSkillFile, fileChanges, optimizePrompt, readMarkers, shareConfig, writeConfig } from './agentconfig'
 import { applyGit, createPr, gitInfo, removeWorktree, specRefNames, WORKTREES } from './git'
+import { deleteMcpServer, saveMcpServer, toggleMcpServer } from './mcp'
 import { installAgent } from './registry'
 import { probeAgent } from './runner'
-import { checkTools, specifyInit } from './env'
+import { checkTools, onPath, specifyInit } from './env'
 import { answerPermission, cancelProjectRuns, cancelRun, finishRun, hasActiveRun, replyRun, startRun, WORK_ITEM_COMMAND, type StartOptions } from './runs'
 import {
   backlinks,
@@ -23,12 +36,14 @@ import {
   nextWorkItemKey,
   numberingScheme,
   parseWorkItem,
+  readIntegration,
   readProject,
   readSpec,
   setTaskDone,
   WIKI_DIR,
   WORK_ITEMS_DIR,
-  workItemMarkdown
+  workItemMarkdown,
+  writeStudioAgent
 } from './speckit'
 import { watchProject } from './watcher'
 
@@ -338,6 +353,43 @@ export function registerIpc(): void {
     const baseline = baselineFor(root, targets, path === null)
     return startRun(projectId, null, agentId, 'optimize', '', { prompt, baseline })
   })
+  ipcMain.handle('skills:createFile', async (_e, projectId: number, skillDir: string, rel: string, content: string) => {
+    const p = await createSkillFile(projectPath(projectId), skillDir, rel, content)
+    notifyChanged(projectId)
+    return p
+  })
+  ipcMain.handle('skills:deleteFile', async (_e, projectId: number, path: string) => {
+    await deleteSkillFile(projectPath(projectId), path)
+    notifyChanged(projectId)
+  })
+
+  // Project agent: assignment in .specify/integration.json, preferences in the app DB
+  ipcMain.handle('project:getAgent', (_e, projectId: number, fallbackAgentId: string): ProjectAgentInfo => {
+    const root = projectPath(projectId)
+    const assigned = readIntegration(root).studioAgent
+    const agentId = assigned ?? fallbackAgentId
+    const agent = db.getAgent(agentId)
+    return {
+      agentId,
+      inherited: !assigned,
+      name: agent?.name ?? agentId,
+      command: agent ? [agent.command, ...agent.args].join(' ') : '',
+      status: !agent ? 'unknown-agent' : onPath(agent.command, root) ? 'ready' : 'missing-binary',
+      preferences: db.getProjectAgentPreferences(projectId)
+    }
+  })
+  ipcMain.handle('project:setAgent', (_e, projectId: number, agentId: string | null, preferences: ProjectAgentPreferences) => {
+    if (agentId && !db.getAgent(agentId)) throw new Error(`Unknown agent ${agentId}`)
+    writeStudioAgent(projectPath(projectId), agentId)
+    db.setProjectAgentPreferences(projectId, preferences)
+    notifyChanged(projectId)
+  })
+
+  // MCP servers in .mcp.json (the list comes with agentConfig:list)
+  mutate('mcp:saveServer', (p, server: McpServerConfig, oldName?: string) => saveMcpServer(projectPath(p), server, oldName))
+  mutate('mcp:toggleServer', (p, name: string, enabled: boolean) => toggleMcpServer(projectPath(p), name, enabled))
+  mutate('mcp:deleteServer', (p, name: string) => deleteMcpServer(projectPath(p), name))
+
   ipcMain.handle('agentConfig:changes', (_e, runId: number) => {
     const run = getRun(runId)
     if (!run) return []

@@ -2,14 +2,15 @@ import electron from 'electron'
 const BrowserWindow = typeof electron === 'object' && electron !== null ? (electron as typeof import('electron')).BrowserWindow : undefined
 import type { RunEvent, RunStatus } from '../shared/types.ts'
 import { countCritical } from '../shared/clarify.ts'
-import { applyDangerousPermissions, autoAnswer, resolveEffectiveConfig, runPrompt } from '../shared/runs.ts'
+import { applyDangerousPermissions, autoAnswer, resolveEffectiveConfig, runPrompt, withInstructions } from '../shared/runs.ts'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { addRunEvent, createRun, getAgent, getGlobalDefaults, getPhaseConfigs, getPm, getProject, getSetting, saveAnalysis, setAgentOptions, setRunStatus } from './db.ts'
+import { addRunEvent, createRun, getAgent, getGlobalDefaults, getPhaseConfigs, getPm, getProject, getProjectAgentPreferences, getSetting, saveAnalysis, setAgentOptions, setRunStatus } from './db.ts'
 import { addWorktree, ensureBranch, WORKTREES } from './git.ts'
 import { applyPm } from '../shared/pm.ts'
+import { readMcpConfig, toAcpMcpServers, validateMcpConfig } from './mcp.ts'
 import { startAgent, type AgentSession } from './runner.ts'
-import { readProject } from './speckit.ts'
+import { readIntegration, readProject } from './speckit.ts'
 
 interface Active {
   projectId: number
@@ -74,7 +75,7 @@ export interface StartOptions {
 }
 
 /**
- * Starts `<prefix><command> <args>`. The agent is the phase default from settings, else `agentId`.
+ * Starts `<prefix><command> <args>`. The agent is the phase default from settings, else the project agent, else `agentId`.
  * One active run per spec and per working directory, so worktree runs can go in parallel.
  * `implement` on a blocked spec needs `force`.
  */
@@ -82,7 +83,9 @@ export async function startRun(projectId: number, specKey: string | null, agentI
   const project = getProject(projectId)
   const phaseConfigs = getPhaseConfigs()
   const globalDefaults = getGlobalDefaults()
-  const effective = resolveEffectiveConfig(command, phaseConfigs, globalDefaults, agentId)
+  const preferences = getProjectAgentPreferences(projectId)
+  const projectAgent = project ? readIntegration(project.path).studioAgent : undefined
+  const effective = resolveEffectiveConfig(command, phaseConfigs, globalDefaults, agentId, { agentId: projectAgent, preferences })
   const targetAgentId = effective.agentId ?? agentId
   const baseAgent = getAgent(targetAgentId) ?? getAgent(agentId)
   if (!project || !baseAgent) throw new Error('Unknown project or agent')
@@ -119,12 +122,19 @@ export async function startRun(projectId: number, specKey: string | null, agentI
   }
   // Work item runs are keyed by the item but are not Spec Kit features.
   const dir = specKey && command !== WORK_ITEM_COMMAND ? `specs/${specKey}` : undefined
-  const prompt = opts.prompt ?? runPrompt(commandPrefix, command, args, specKey, branch)
+  const prompt = withInstructions(opts.prompt ?? runPrompt(commandPrefix, command, args, specKey, branch), preferences.instructions)
   const run = createRun({ projectId, specKey, agent: agent.id, prompt })
   const entry: Active = { projectId, specKey, cwd, command, turnText: '', permissions: new Map(), status: 'running' }
   active.set(run.id, entry)
   if (opts.baseline) emit(run.id, { type: 'baseline', files: opts.baseline })
   emit(run.id, { type: 'user', text: prompt })
+
+  // Project MCP servers (.mcp.json of the main tree, also for worktree runs); a broken file never blocks the run.
+  const mcp = readMcpConfig(project.path)
+  const mcpServers = toAcpMcpServers(mcp.servers)
+  if (mcp.error) emit(run.id, { type: 'notice', text: `.mcp.json has a syntax error, starting without MCP servers: ${mcp.error}` })
+  for (const f of validateMcpConfig(project.path)) if (f.rule === 'mcp-missing-binary') emit(run.id, { type: 'notice', text: f.reason })
+  if (mcpServers.length) emit(run.id, { type: 'notice', text: `MCP servers: ${mcpServers.map((s) => s.name).join(', ')}` })
 
   startAgent(agent, cwd, { ...(dir ? { SPECIFY_FEATURE_DIRECTORY: dir } : {}), ...(branch ? { GIT_BRANCH_NAME: branch } : {}) }, {
     onUpdate: (update) => {
@@ -150,7 +160,7 @@ export async function startRun(projectId: number, specKey: string | null, agentI
     },
     onNotice: (text) => emit(run.id, { type: 'notice', text }),
     onExit: (error) => active.get(run.id) === entry && setStatus(run.id, error ? 'failed' : 'done', error)
-  }, { model: effective.model, effort: effective.effort })
+  }, { model: effective.model, effort: effective.effort, mcpServers })
     .then((session) => {
       const { options } = session
       setAgentOptions(baseAgent.id, { ...options, at: new Date().toISOString() })
